@@ -1,0 +1,29 @@
+{
+  "atlas": {
+    "src": "gxe_run_sheet.png",
+    "frameW": 256,
+    "frameH": 256,
+    "columns": 4,
+    "rows": 4
+  },
+  "animations": {
+    "run": {
+      "row": 0,
+      "frames": 16,
+      "fps": 16,
+      "loop": true,
+      "anchorX": 0.5,
+      "anchorY": 0.92,
+      "columns": 4
+    }
+  },
+  "meta": {
+    "character": "莞小鹅",
+    "animation": "run 奔跑",
+    "frameCount": 16,
+    "grid": "4行 × 4列",
+    "description": "动态奔跑循环，大步幅，身体前倾，翅膀展开保持平衡，充满力量感；透明 PNG 图集",
+    "doubledFromOriginal": true,
+    "originalFrames": 8
+  }
+}

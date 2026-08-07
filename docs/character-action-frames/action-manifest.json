@@ -1,0 +1,102 @@
+{
+  "characterActionResources": {
+    "status": "reference-and-independent-frames",
+    "frameSize": "512x512",
+    "background": "clean pale cream RGB",
+    "runtimeAtlasGenerated": false,
+    "groups": [
+      {
+        "name": "boss_patrol",
+        "character": "烧鹅店老板",
+        "frameCount": 4,
+        "reference": "../character-action-refs/boss_patrol_reference.png",
+        "framesDir": "boss_patrol",
+        "framePattern": "boss_patrol_01.png .. boss_patrol_04.png"
+      },
+      {
+        "name": "boss_caught",
+        "character": "烧鹅店老板",
+        "frameCount": 2,
+        "reference": "../character-action-refs/boss_caught_reference.png",
+        "framesDir": "boss_caught",
+        "framePattern": "boss_caught_01.png .. boss_caught_02.png"
+      },
+      {
+        "name": "gxe_interact",
+        "character": "莞小鹅",
+        "frameCount": 4,
+        "reference": "../character-action-refs/gxe_interact/gxe_interact_reference.png",
+        "framesDir": "gxe_interact",
+        "framePattern": "gxe_interact_01.png .. gxe_interact_04.png"
+      },
+      {
+        "name": "gxe_eat",
+        "character": "莞小鹅",
+        "frameCount": 6,
+        "reference": "../character-action-refs/gxe_eat/gxe_eat_reference.png",
+        "framesDir": "gxe_eat",
+        "framePattern": "gxe_eat_01.png .. gxe_eat_06.png",
+        "prop": "single small lychee only"
+      },
+      {
+        "name": "gxe_throw",
+        "character": "莞小鹅",
+        "frameCount": 6,
+        "reference": "../character-action-refs/gxe_throw/gxe_throw_reference.png",
+        "framesDir": "gxe_throw",
+        "framePattern": "gxe_throw_01.png .. gxe_throw_06.png",
+        "prop": "single plain orange basketball only"
+      },
+      {
+        "name": "gxe_scared",
+        "character": "莞小鹅",
+        "frameCount": 4,
+        "reference": "../character-action-refs/gxe_scared/gxe_scared_reference.png",
+        "framesDir": "gxe_scared",
+        "framePattern": "gxe_scared_01.png .. gxe_scared_04.png"
+      },
+      {
+        "name": "gxe_hide",
+        "character": "莞小鹅",
+        "frameCount": 2,
+        "reference": "../character-action-refs/gxe_hide/gxe_hide_reference.png",
+        "framesDir": "gxe_hide",
+        "framePattern": "gxe_hide_01.png .. gxe_hide_02.png"
+      },
+      {
+        "name": "gxe_caught",
+        "character": "莞小鹅",
+        "frameCount": 4,
+        "reference": "../character-action-refs/gxe_caught/gxe_caught_reference.png",
+        "framesDir": "gxe_caught",
+        "framePattern": "gxe_caught_01.png .. gxe_caught_04.png"
+      },
+      {
+        "name": "gxe_jump",
+        "character": "莞小鹅",
+        "frameCount": 4,
+        "reference": "../character-action-refs/gxe_jump/gxe_jump_reference.png",
+        "framesDir": "gxe_jump",
+        "framePattern": "gxe_jump_01.png .. gxe_jump_04.png"
+      },
+      {
+        "name": "gxe_celebrate",
+        "character": "莞小鹅",
+        "frameCount": 6,
+        "reference": "../character-action-refs/gxe_celebrate/gxe_celebrate_reference.png",
+        "framesDir": "gxe_celebrate",
+        "framePattern": "gxe_celebrate_01.png .. gxe_celebrate_06.png"
+      },
+      {
+        "name": "gxe_sit",
+        "character": "莞小鹅",
+        "frameCount": 4,
+        "reference": "../character-action-refs/gxe_sit/gxe_sit_reference.png",
+        "framesDir": "gxe_sit",
+        "framePattern": "gxe_sit_01.png .. gxe_sit_04.png"
+      }
+    ],
+    "totalGroups": 11,
+    "totalFrames": 46
+  }
+}

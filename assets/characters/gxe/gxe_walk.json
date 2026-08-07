@@ -1,0 +1,29 @@
+{
+  "atlas": {
+    "src": "gxe_walk_sheet.png",
+    "frameW": 256,
+    "frameH": 256,
+    "columns": 4,
+    "rows": 4
+  },
+  "animations": {
+    "walk": {
+      "row": 0,
+      "frames": 16,
+      "fps": 12,
+      "loop": true,
+      "anchorX": 0.5,
+      "anchorY": 0.92,
+      "columns": 4
+    }
+  },
+  "meta": {
+    "character": "莞小鹅",
+    "animation": "walk 行走",
+    "frameCount": 16,
+    "grid": "4行 × 4列",
+    "description": "完整行走循环，双足交替迈步，身体有节奏上下起伏，翅膀配合步伐轻拍；透明 PNG 图集",
+    "doubledFromOriginal": true,
+    "originalFrames": 8
+  }
+}
