@@ -224,6 +224,21 @@ describe('MainMenuScene 主菜单背景', () => {
     container.remove();
   });
 
+  it('窄横屏将五个入口压缩为 2 列网格，避免按钮挤满短屏', () => {
+    const { scene, container } = createScene();
+
+    scene.onEnter();
+
+    const styleText = document.getElementById('main-menu-formal-ui-styles').textContent;
+    expect(styleText).toContain('@media (max-width: 1100px)');
+    expect(styleText).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));');
+    expect(styleText).toContain('grid-column: 1 / -1;');
+    expect(styleText).toContain('aspect-ratio: 960 / 313;');
+
+    scene.onExit();
+    container.remove();
+  });
+
   it('点击结尾回顾入口打开回顾面板', () => {
     const { scene, container, endingReviewPanel } = createScene();
 

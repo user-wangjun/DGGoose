@@ -30,6 +30,28 @@ describe('场景完成印记核验展示', () => {
     expect(root.textContent).toContain('出厂合格证');
   });
 
+  it('图片尚未返回或加载失败时仍保留可见徽章画框', () => {
+    reveal.show({ id: 'basketball', name: '篮球徽章' });
+
+    const root = container.querySelector('[data-badge-reveal]');
+    const frame = root.querySelector('[data-badge-reveal-art]');
+    const image = root.querySelector('[data-badge-reveal-image]');
+    const fallback = root.querySelector('[data-badge-reveal-fallback]');
+
+    expect(frame).not.toBeNull();
+    expect(frame.style.width).toContain('184px');
+    expect(frame.style.height).toContain('184px');
+    expect(fallback.style.opacity).not.toBe('0');
+
+    image.dispatchEvent(new Event('load'));
+    expect(image.style.opacity).toBe('1');
+    expect(fallback.style.opacity).toBe('0');
+
+    image.dispatchEvent(new Event('error'));
+    expect(image.style.display).toBe('none');
+    expect(fallback.style.opacity).toBe('1');
+  });
+
   it('获得印记后保持展示，按空格确认才移除并继续', () => {
     const onConfirm = vi.fn();
     reveal.show({ id: 'basketball', name: '篮球徽章' }, { onConfirm });
@@ -43,6 +65,21 @@ describe('场景完成印记核验展示', () => {
       code: 'Space',
       bubbles: true,
     }));
+
+    expect(container.querySelector('[data-badge-reveal]')).toBeNull();
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
+  it('手机没有空格键时可点击模态层内的继续按钮', () => {
+    const onConfirm = vi.fn();
+    reveal.show({ id: 'factory_cert', name: '出厂合格证' }, { onConfirm });
+
+    const confirmButton = container.querySelector('[data-badge-reveal-confirm]');
+    expect(confirmButton).not.toBeNull();
+    expect(confirmButton.textContent).toBe('继续');
+    expect(container.querySelector('[data-badge-reveal-hint]').textContent).toContain('点击');
+
+    confirmButton.click();
 
     expect(container.querySelector('[data-badge-reveal]')).toBeNull();
     expect(onConfirm).toHaveBeenCalledOnce();

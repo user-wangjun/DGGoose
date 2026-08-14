@@ -23,8 +23,16 @@ const RELEASE_TRANSITION = 'transform 180ms cubic-bezier(0.22, 0.82, 0.32, 1)';
  */
 const JOYSTICK_STYLES = `
   [data-joystick-base].gxe-virtual-joystick {
-    --joystick-left: max(14px, calc(env(safe-area-inset-left, 0px) + 14px));
-    --joystick-bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px));
+    /* 画布在超宽横屏中会以 16:9 居中留黑边；控件必须落在同一个画框内，
+       不能继续固定在 viewport 边缘，否则手机上会像“后续黑屏”。 */
+    --joystick-left: max(
+      calc(var(--gxe-game-frame-left, calc((100vw - min(100vw, 177.7778vh)) / 2)) + 14px),
+      calc(env(safe-area-inset-left, 0px) + 14px)
+    );
+    --joystick-bottom: max(
+      calc(var(--gxe-game-frame-bottom, calc((100vh - min(100vh, 56.25vw)) / 2)) + 14px),
+      calc(env(safe-area-inset-bottom, 0px) + 14px)
+    );
     position: fixed;
     left: var(--joystick-left);
     bottom: var(--joystick-bottom);
@@ -121,8 +129,14 @@ const JOYSTICK_STYLES = `
   }
 
   [data-joystick-interact].gxe-virtual-joystick__action {
-    --joystick-action-right: max(14px, calc(env(safe-area-inset-right, 0px) + 14px));
-    --joystick-action-bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px));
+    --joystick-action-right: max(
+      calc(var(--gxe-game-frame-right, calc((100vw - min(100vw, 177.7778vh)) / 2)) + 14px),
+      calc(env(safe-area-inset-right, 0px) + 14px)
+    );
+    --joystick-action-bottom: max(
+      calc(var(--gxe-game-frame-bottom, calc((100vh - min(100vh, 56.25vw)) / 2)) + 14px),
+      calc(env(safe-area-inset-bottom, 0px) + 14px)
+    );
     position: fixed;
     right: var(--joystick-action-right);
     bottom: var(--joystick-action-bottom);
@@ -163,6 +177,7 @@ const JOYSTICK_STYLES = `
 
   [data-joystick-interact].gxe-virtual-joystick__action:disabled,
   [data-joystick-interact].gxe-virtual-joystick__action[hidden] {
+    display: none !important;
     opacity: 0;
     pointer-events: none;
   }
@@ -179,13 +194,25 @@ const JOYSTICK_STYLES = `
 
   @media (max-width: 960px) and (max-height: 460px) and (orientation: landscape) {
     [data-joystick-base].gxe-virtual-joystick {
-      --joystick-left: max(10px, calc(env(safe-area-inset-left, 0px) + 10px));
-      --joystick-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+      --joystick-left: max(
+        calc(var(--gxe-game-frame-left, calc((100vw - min(100vw, 177.7778vh)) / 2)) + 10px),
+        calc(env(safe-area-inset-left, 0px) + 10px)
+      );
+      --joystick-bottom: max(
+        calc(var(--gxe-game-frame-bottom, calc((100vh - min(100vh, 56.25vw)) / 2)) + 8px),
+        calc(env(safe-area-inset-bottom, 0px) + 8px)
+      );
     }
 
     [data-joystick-interact].gxe-virtual-joystick__action {
-      --joystick-action-right: max(10px, calc(env(safe-area-inset-right, 0px) + 10px));
-      --joystick-action-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+      --joystick-action-right: max(
+        calc(var(--gxe-game-frame-right, calc((100vw - min(100vw, 177.7778vh)) / 2)) + 10px),
+        calc(env(safe-area-inset-right, 0px) + 10px)
+      );
+      --joystick-action-bottom: max(
+        calc(var(--gxe-game-frame-bottom, calc((100vh - min(100vh, 56.25vw)) / 2)) + 8px),
+        calc(env(safe-area-inset-bottom, 0px) + 8px)
+      );
     }
   }
 
@@ -493,10 +520,25 @@ export class VirtualJoystick {
   _syncActionButton() {
     if (!this.actionElement) return;
     const ownerDocument = this.container?.ownerDocument;
-    const hasTopdownHud = Boolean(ownerDocument?.querySelector?.('[data-topdown-hud]'));
-    const hidden = hasTopdownHud || !this.enabled || this.baseElement?.style.display === 'none';
+    const topdownPrompt = ownerDocument?.querySelector?.('[data-topdown-interaction]');
+    const promptRect = topdownPrompt?.getBoundingClientRect?.();
+    // TopdownController 的 HUD 在所有俯视章节都会常驻 DOM，投篮阶段也只是
+    // 把它隐藏。不能仅凭 HUD 是否存在就隐藏移动端动作键，否则手机没有
+    // 键盘时既不能推进对白，也不能在没有靠近目标时发起互动。
+    // 目标提示真正可见时使用提示框自己的按钮，避免同屏出现两个动作键。
+    const promptVisible = Boolean(
+      topdownPrompt
+      && getComputedStyle(topdownPrompt).display !== 'none'
+      && Number(promptRect?.width) > 0
+      && Number(promptRect?.height) > 0,
+    );
+    // 某些阶段（例如篮球投篮）需要玩家直接拖拽画布对象，不能让通用
+    // interact 键替玩家选择一条预设路线。阶段代码用这个标记临时收起按钮，
+    // 退出阶段后再移除标记，由这里统一恢复可见性/可用性。
+    const actionSuppressed = this.actionElement.hasAttribute('data-joystick-action-suppressed');
+    const hidden = actionSuppressed || promptVisible || !this.enabled || this.baseElement?.style.display === 'none';
     this.actionElement.hidden = hidden;
-    this.actionElement.disabled = !this.enabled || hasTopdownHud;
+    this.actionElement.disabled = actionSuppressed || !this.enabled || promptVisible;
     this.actionElement.setAttribute('aria-hidden', hidden ? 'true' : 'false');
     if (hidden) this.actionElement.setAttribute('data-joystick-action-state', 'idle');
   }

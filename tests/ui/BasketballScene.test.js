@@ -284,6 +284,52 @@ describe('BasketballScene 失败后的正式剧情出口', () => {
     expect(preventDefault).toHaveBeenCalled();
   });
 
+  it('投篮阶段收起通用动作键，避免一键走预设路线', () => {
+    const action = document.createElement('button');
+    action.setAttribute('data-joystick-interact', '');
+    action.textContent = '互动';
+    container.appendChild(action);
+    const actionScene = new BasketballScene({
+      sceneManager,
+      eventBus,
+      badgeSystem,
+      dialogueRunner: {},
+      dialogueBox: { show: vi.fn(), hide: vi.fn(), update: vi.fn() },
+      input: { onAction: vi.fn(), offAction: vi.fn() },
+      container,
+    });
+
+    actionScene._setMobileActionVisible(false);
+    expect(action.hidden).toBe(true);
+    expect(action.disabled).toBe(true);
+    expect(action.hasAttribute('data-joystick-action-suppressed')).toBe(true);
+
+    actionScene._setMobileActionVisible(true);
+    expect(action.hidden).toBe(false);
+    expect(action.disabled).toBe(false);
+    expect(action.hasAttribute('data-joystick-action-suppressed')).toBe(false);
+  });
+
+  it('触屏从篮球附近而非精确中心按下也能进入瞄准', () => {
+    const canvas = document.createElement('canvas');
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
+    });
+    scene.canvas = canvas;
+    scene._createPhysics();
+    scene.phase = 'playing';
+
+    scene._onCanvasPointerDown({
+      pointerId: 12,
+      clientX: 370,
+      clientY: 580,
+      preventDefault: vi.fn(),
+    });
+
+    expect(scene.isAiming).toBe(true);
+    scene.onExit();
+  });
+
   it('Blumgi 风格投失落地后自动回到当前小关卡起点', () => {
     scene._removeRetryOverlay();
     scene._createPhysics();

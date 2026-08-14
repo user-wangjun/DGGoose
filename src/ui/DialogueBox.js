@@ -76,9 +76,13 @@ export class DialogueBox {
     this.element.setAttribute('data-dialogue-mode', 'character');
     this.element.setAttribute('data-dialogue-speaker', '');
     this.element.style.cssText = `
-      position: fixed; left: clamp(8px, 2.2vw, 32px); right: clamp(8px, 2.2vw, 32px);
-      bottom: max(10px, env(safe-area-inset-bottom, 0px)); z-index: 7000;
-      height: clamp(164px, 26vh, 232px); max-height: calc(100vh - 20px);
+      position: fixed;
+      left: calc(var(--gxe-game-frame-left, 0px) + clamp(8px, 2.2vw, 32px));
+      right: calc(var(--gxe-game-frame-right, 0px) + clamp(8px, 2.2vw, 32px));
+      bottom: calc(var(--gxe-game-frame-bottom, 0px) + max(10px, env(safe-area-inset-bottom, 0px)));
+      z-index: 7000;
+      height: clamp(164px, calc(var(--gxe-game-frame-height, 100vh) * 0.26), 232px);
+      max-height: calc(var(--gxe-game-frame-height, 100vh) - 20px);
       padding: clamp(13px, 1.9vw, 26px) clamp(18px, 4.2vw, 56px) clamp(14px, 1.8vw, 24px);
       box-sizing: border-box; overflow: visible; isolation: isolate;
       background:

@@ -292,6 +292,17 @@ describe('DialogueBox 对话框', () => {
   });
 
   describe('正式纸张布局与关闭恢复', () => {
+    it('对话框与 16:9 游戏画框对齐，不覆盖画框外黑边', () => {
+      const box = container.querySelector('[data-dialogue-box]');
+
+      expect(box.style.position).toBe('fixed');
+      expect(box.style.left).toContain('var(--gxe-game-frame-left');
+      expect(box.style.right).toContain('var(--gxe-game-frame-right');
+      expect(box.style.bottom).toContain('var(--gxe-game-frame-bottom');
+      expect(box.style.height).toContain('var(--gxe-game-frame-height');
+      expect(box.style.maxHeight).toContain('var(--gxe-game-frame-height');
+    });
+
     it('长文本保持单一正文节点并启用换行与滚动保护', () => {
       const longText = '岭南的风从荔枝园一路吹到松山湖，'.repeat(80);
       dialogueBox.show([{ who: '莞小鹅', txt: longText, tags: [] }]);

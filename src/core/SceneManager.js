@@ -10,8 +10,9 @@ export class SceneManager {
    * @param {Object} [options] - 初始化选项
    * @param {EventBus} [options.eventBus] - 事件总线（可选，用于广播场景切换事件）
    * @param {Object} [options.transition] - 可选的场景转场叠加层
+   * @param {Function|null} [options.beforeChange] - 提交场景切换前调用的钩子
    */
-  constructor({ eventBus, transition = null } = {}) {
+  constructor({ eventBus, transition = null, beforeChange = null } = {}) {
     this.scenes = new Map();
     this.current = null;
     this.currentName = null;
@@ -20,6 +21,8 @@ export class SceneManager {
     this.eventBus = eventBus || null;
     /** @type {Object|null} 地图转场叠加层 */
     this.transition = transition;
+    /** @type {Function|null} 提交切换前的钩子；用于保存旧场景快照 */
+    this.beforeChange = typeof beforeChange === 'function' ? beforeChange : null;
     /** @type {boolean} 新印记展示期间，暂停提交下一场景 */
     this.badgeGateActive = false;
     /** @type {{type:'change'|'back', name?:string, params?:*}|null} 待印记确认的场景操作 */
@@ -55,6 +58,16 @@ export class SceneManager {
    */
   get(name) {
     return this.scenes.get(name);
+  }
+
+  /**
+   * 设置提交场景切换前的钩子。钩子在旧场景 onExit 之前执行，
+   * 适合保存“实际退出点”而不依赖调用方记住每一条路由。
+   * @param {Function|null} handler
+   */
+  setBeforeChange(handler) {
+    this.beforeChange = typeof handler === 'function' ? handler : null;
+    return this;
   }
 
   /**
@@ -125,6 +138,7 @@ export class SceneManager {
 
     // 先退出当前场景（如果有），并压入历史栈
     const previousName = this.currentName;
+    this.beforeChange?.({ fromName: previousName, toName: name, params });
     if (this.current && this.currentName) {
       if (this.current.onExit) {
         this.current.onExit();
@@ -174,6 +188,7 @@ export class SceneManager {
 
     const prevName = this.history.pop();
     const previousName = this.currentName;
+    this.beforeChange?.({ fromName: previousName, toName: prevName, params });
     if (this.current && this.current.onExit) {
       this.current.onExit();
     }

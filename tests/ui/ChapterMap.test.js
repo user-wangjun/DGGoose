@@ -67,6 +67,15 @@ describe('ChapterMap 章节地图', () => {
       expect(nodes.length).toBe(7);
     });
 
+    it('注入窄横屏时间轴响应式规则，避免首尾节点被裁切', () => {
+      createMap();
+      const css = document.head.querySelector('style')?.textContent || '';
+
+      expect(css).toContain('@media (max-width: 700px) and (orientation: landscape)');
+      expect(css).toContain('flex-shrink: 1 !important');
+      expect(css).toContain('min-width: 6px !important');
+    });
+
     it('章节信息卡使用对应的正式徽章图进行核验', () => {
       badgeSystem.unlock('factory_cert');
       createMap();

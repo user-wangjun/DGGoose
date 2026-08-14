@@ -25,6 +25,7 @@ import { BadgeSystem } from './core/BadgeSystem.js';
 import { SaveSystem } from './core/SaveSystem.js';
 import { SettingsService } from './core/SettingsService.js';
 import { SceneManager } from './core/SceneManager.js';
+import { RunSaveController } from './core/RunSaveController.js';
 import { isTouchDevice } from './core/DeviceCapabilities.js';
 import { MapTransitionOverlay } from './core/MapTransitionOverlay.js';
 import { GooseSprite } from './core/GooseSprite.js';
@@ -257,32 +258,24 @@ function main() {
   sceneManager = new SceneManager({ eventBus, transition: mapTransition });
 
   // ==================== 2. 离开位置保存 ====================
-  // 场景在 onExit 前提供快照，入口层负责把快照写入 slot1；这样 Escape、
-  // 页面关闭和章节完成自动存档走同一份数据，不会出现“章节到了但玩法回到开头”。
-  const saveCurrentRun = () => {
-    if (!sceneManager || ['menu', 'chapterSelect'].includes(sceneManager.currentName)) return false;
-    const snapshot = sceneManager.captureCurrentState?.();
-    if (!snapshot) return false;
-
-    saveSystem.autoSave({
-      chapter: snapshot.scene,
-      checkpoint: snapshot.state,
-      badges: badgeSystem.unlockedIds.slice(),
-      settings: settingsService.getAll(),
-      ending: snapshot.state?.endingId || null,
-    });
-    return true;
-  };
+  // 所有返回菜单、切后台、关闭页面的路径都在旧场景 onExit 前保存，
+  // 避免移动端返回/切后台没有 beforeunload 时丢失最后位置。
+  const runSaveController = new RunSaveController({
+    sceneManager,
+    saveSystem,
+    badgeSystem,
+    settingsService,
+  });
+  sceneManager.setBeforeChange((change) => runSaveController.onBeforeSceneChange(change));
+  runSaveController.bindLifecycle();
 
   const onPause = (action) => {
     if (action !== 'pause') return false;
     if (sceneManager.currentName === 'menu') return true;
-    saveCurrentRun();
     sceneManager.change('menu');
     return true;
   };
   input.onAction(onPause);
-  window.addEventListener('beforeunload', saveCurrentRun);
 
   // ==================== 2.5 自动存档连接 ====================
   // 监听章节完成事件，自动写入 slot1 存档（对应 PRD F11 自动存档）

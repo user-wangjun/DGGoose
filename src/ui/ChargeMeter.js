@@ -57,7 +57,9 @@ export class ChargeMeter {
     this.element = document.createElement('div');
     this.element.setAttribute('data-charge-meter', '');
     this.element.style.cssText = `
-      position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%);
+      position: fixed;
+      bottom: calc(var(--gxe-game-frame-bottom, 0px) + 68px);
+      left: 50%; transform: translateX(-50%);
       z-index: 200; display: flex; flex-direction: column; align-items: center; gap: 10px;
       pointer-events: auto; user-select: none;
     `;

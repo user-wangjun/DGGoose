@@ -110,6 +110,43 @@ describe('荔枝园俯视流程', () => {
     scene.onExit();
   });
 
+  it('运行时组件层显示当前目标，并给已摘树留下可见状态', () => {
+    const { scene } = createScene();
+    scene.onEnter();
+    scene._startExploration();
+    scene.harvested = new Set(['tree-3']);
+    scene.harvestStep = 1;
+    scene.animTime = 0.4;
+
+    const ctx = {
+      canvas: {
+        width: 1280,
+        height: 720,
+        getBoundingClientRect: () => ({ width: 640, height: 360 }),
+      },
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      closePath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      stroke: vi.fn(),
+      fillRect: vi.fn(),
+      strokeRect: vi.fn(),
+      fillText: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      setLineDash: vi.fn(),
+    };
+
+    scene._drawTreeComponents(ctx);
+
+    expect(ctx.arc).toHaveBeenCalled();
+    expect(ctx.stroke).toHaveBeenCalled();
+    expect(ctx.fillText).toHaveBeenCalledWith('✓ 已摘', 650, expect.any(Number));
+    scene.onExit();
+  });
+
   it('摘错只提示，不清空已完成进度', () => {
     const { scene } = createScene();
     scene.phase = 'explore';

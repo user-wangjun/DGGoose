@@ -306,6 +306,8 @@ describe('SettingsPanel 正式设置面板', () => {
     expect(css).toContain('safe-area-inset-bottom');
     expect(css).toContain('safe-area-inset-left');
     expect(css).toContain('@media (orientation: landscape) and (max-height: 500px)');
+    expect(css).toContain('@media (orientation: landscape) and (max-height: 420px)');
+    expect(css).toContain('[data-settings-description] {\n      display: none;');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('overflow-x: hidden');
   });

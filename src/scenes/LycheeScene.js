@@ -244,6 +244,9 @@ export class LycheeScene {
     actors.forEach((actor) => actor.draw());
     // 互动标签是 UI 覆盖层，最后绘制，不改变树木/玩家的遮挡关系。
     this.topdown?.drawInteractables(ctx, this.animTime);
+    // 树木本体烘焙在正式底图，但“当前目标/已摘取”是运行时组件，必须独立绘制。
+    // 否则进度虽然更新，画面中的五棵树会始终看起来完全一样。
+    this._drawTreeComponents(ctx);
     if (this.feedbackTimer > 0) this._drawFeedback(ctx);
     this.topdown?.drawDebug(ctx, {
       spawn: PLAYER_START,
@@ -518,6 +521,85 @@ export class LycheeScene {
       width: 146,
       height: 146,
     });
+  }
+
+  /**
+   * 绘制荔枝树的运行时组件状态。
+   * 正式底图已经包含树冠、果实和围栏，不能再把另一套树 PNG 整棵盖上去；
+   * 这里使用独立的目标光环与已摘状态牌，既保持底图风格，又让玩法状态可见。
+   */
+  _drawTreeComponents(ctx) {
+    if (!ctx || !this.topdown || this.phase === 'intro' || this.phase === 'idle') return;
+
+    const scale = this._getCanvasScale(ctx);
+    const px = (screenPixels) => screenPixels / scale;
+    const expected = this.phase === 'explore' ? LYCHEE_SEQUENCE[this.harvestStep] : null;
+
+    for (const tree of LYCHEE_TREES) {
+      const treeNumber = Number(tree.label);
+      const isHarvested = this.harvested.has(tree.id);
+      const isCurrentTarget = !isHarvested && treeNumber === expected;
+      const isActive = this.topdown.activeInteractable === tree;
+
+      if (isCurrentTarget) {
+        const pulse = 0.72 + Math.sin(this.animTime * 5) * 0.16;
+        const radius = Math.max(62, px(54));
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.12)';
+        ctx.beginPath();
+        ctx.arc(tree.x, tree.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = isActive ? '#fff1a8' : '#fbbf24';
+        ctx.lineWidth = px(isActive ? 4 : 3);
+        ctx.setLineDash?.([px(10), px(7)]);
+        ctx.beginPath();
+        ctx.arc(tree.x, tree.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash?.([]);
+
+        // 小箭头固定在树冠上方，避免目标文字在手机上缩成不可读的细线。
+        const arrowY = tree.y - radius - px(14);
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.moveTo(tree.x, arrowY + px(12));
+        ctx.lineTo(tree.x - px(8), arrowY);
+        ctx.lineTo(tree.x + px(8), arrowY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (isHarvested) {
+        const statusY = (tree.visual?.y ?? tree.y + 60) - px(8);
+        const badgeWidth = px(58);
+        const badgeHeight = px(22);
+        ctx.save();
+        ctx.globalAlpha = 0.96;
+        ctx.fillStyle = 'rgba(15, 59, 42, 0.9)';
+        ctx.fillRect(tree.x - badgeWidth / 2, statusY - badgeHeight / 2, badgeWidth, badgeHeight);
+        ctx.strokeStyle = '#bbf7d0';
+        ctx.lineWidth = px(1.5);
+        ctx.strokeRect(tree.x - badgeWidth / 2, statusY - badgeHeight / 2, badgeWidth, badgeHeight);
+        ctx.font = `700 ${Math.max(14, px(12))}px Microsoft YaHei, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ecfdf5';
+        ctx.fillText('✓ 已摘', tree.x, statusY);
+        ctx.restore();
+      }
+    }
+  }
+
+  /** Canvas 逻辑像素与实际 CSS 画框的缩放比例。 */
+  _getCanvasScale(ctx) {
+    const canvas = ctx?.canvas;
+    const rect = canvas?.getBoundingClientRect?.();
+    const dpr = typeof window !== 'undefined' ? Math.max(1, Number(window.devicePixelRatio) || 1) : 1;
+    const logicalWidth = canvas?.width ? canvas.width / dpr : GAME.WIDTH;
+    const logicalHeight = canvas?.height ? canvas.height / dpr : GAME.HEIGHT;
+    if (!rect?.width || !rect?.height || !logicalWidth || !logicalHeight) return 1;
+    return Math.max(0.25, Math.min(rect.width / logicalWidth, rect.height / logicalHeight));
   }
 
   _loadSceneObjects() {

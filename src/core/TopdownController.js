@@ -298,16 +298,22 @@ export class TopdownController {
   drawInteractables(ctx, time = 0) {
     if (!ctx || !this.interactionEnabled) return;
     const pulse = 0.5 + Math.sin(time * 4) * 0.5;
+    const canvasScale = this._getCanvasScale(ctx);
+    const logicalPixels = (screenPixels) => screenPixels / canvasScale;
     ctx.save();
     for (const target of this.interactables) {
       if (!isInteractableAvailable(target)) continue;
       const isActive = target === this.activeInteractable;
+      const baseFontSize = isActive ? 14 : 12;
+      // Canvas 在手机横屏时通常只有 0.54 倍 CSS 缩放；直接使用 12px
+      // 会把目标名称压成 6px 左右，组件虽然存在但用户看不清。
+      const fontSize = Math.max(baseFontSize, logicalPixels(12));
       // 正式 PNG 物件已经由场景层绘制；这里只保留当前目标文字，
       // 避免圆环/圆点再次伪装成齿轮、篮筐、围栏或图书馆。
       if (target.hideMarker) {
         if (target.markerLabel) {
           ctx.globalAlpha = isActive ? 0.98 : 0.82;
-          ctx.font = isActive ? '700 14px Microsoft YaHei, sans-serif' : '600 12px Microsoft YaHei, sans-serif';
+          ctx.font = `${isActive ? 700 : 600} ${fontSize}px Microsoft YaHei, sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
           ctx.fillStyle = '#fff8e7';
@@ -318,7 +324,7 @@ export class TopdownController {
       if (target.isCharacter) {
         // 角色已有透明 Sprite；这里只保留必要的名字标签，避免圆点/圆环再次伪装成人物。
         ctx.globalAlpha = isActive ? 0.98 : 0.82;
-        ctx.font = isActive ? '700 14px Microsoft YaHei, sans-serif' : '600 12px Microsoft YaHei, sans-serif';
+        ctx.font = `${isActive ? 700 : 600} ${fontSize}px Microsoft YaHei, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         ctx.fillStyle = '#fff8e7';
@@ -329,7 +335,7 @@ export class TopdownController {
         );
         continue;
       }
-      const radius = (target.markerRadius || 18) + (isActive ? pulse * 4 : 0);
+      const radius = Math.max(target.markerRadius || 18, logicalPixels(18)) + (isActive ? pulse * 4 : 0);
       const color = target.isExit ? '#60a5fa' : isActive ? '#fbbf24' : '#d8b35f';
 
       ctx.globalAlpha = isActive ? 0.95 : 0.72;
@@ -347,13 +353,27 @@ export class TopdownController {
       ctx.arc(target.x, target.y, 5, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.font = isActive ? '700 14px Microsoft YaHei, sans-serif' : '600 12px Microsoft YaHei, sans-serif';
+      ctx.font = `${isActive ? 700 : 600} ${fontSize}px Microsoft YaHei, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#fff8e7';
-      ctx.fillText(target.markerLabel || target.label || '', target.x, target.y - radius - 8);
+      ctx.fillText(target.markerLabel || target.label || '', target.x, target.y - radius - logicalPixels(8));
     }
     ctx.restore();
+  }
+
+  /**
+   * 返回 Canvas 逻辑像素到 CSS 像素的缩放比例。
+   * 逻辑测试上下文没有 canvas 时按 1 倍处理，真实手机/平板则按画框实际尺寸计算。
+   */
+  _getCanvasScale(ctx) {
+    const canvas = ctx?.canvas;
+    const rect = canvas?.getBoundingClientRect?.();
+    const dpr = typeof window !== 'undefined' ? Math.max(1, Number(window.devicePixelRatio) || 1) : 1;
+    const logicalWidth = canvas?.width ? canvas.width / dpr : GAME.WIDTH;
+    const logicalHeight = canvas?.height ? canvas.height / dpr : GAME.HEIGHT;
+    if (!rect?.width || !rect?.height || !logicalWidth || !logicalHeight) return 1;
+    return Math.max(0.25, Math.min(rect.width / logicalWidth, rect.height / logicalHeight));
   }
 
   /**
@@ -512,7 +532,9 @@ export class TopdownController {
     if (!this.container || typeof document === 'undefined') return;
     this.domRoot = document.createElement('div');
     this.domRoot.setAttribute('data-topdown-hud', '');
-    this.domRoot.style.cssText = 'position:fixed;inset:0;z-index:120;pointer-events:none;font-family:inherit;';
+    // Canvas 会在非 16:9 视口中留出黑边；HUD 必须跟随同一个游戏画框，
+    // 否则手机上右侧任务/出口文字会漂到 Canvas 外的黑边区域。
+    this.domRoot.style.cssText = 'position:fixed;top:50%;left:50%;width:var(--gxe-game-frame-width);height:var(--gxe-game-frame-height);transform:translate(-50%, -50%);z-index:120;pointer-events:none;font-family:inherit;';
 
     const title = document.createElement('div');
     title.setAttribute('data-topdown-title', '');

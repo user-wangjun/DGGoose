@@ -443,6 +443,44 @@ export class ChapterMap {
       [data-chapter-map] [data-chapter-node][data-state="locked"] [data-chapter-icon] {
         filter: saturate(0.82);
       }
+
+      /* 窄横屏手机仍要一次看见完整时间轴，避免首尾节点被横向裁切。 */
+      @media (max-width: 700px) and (orientation: landscape) {
+        [data-chapter-map] {
+          padding: 8px 0;
+        }
+
+        [data-chapter-map] [data-chapter-timeline] {
+          justify-content: flex-start !important;
+        }
+
+        [data-chapter-map] [data-chapter-node] {
+          flex: 0 1 64px;
+          flex-shrink: 1 !important;
+          width: 64px !important;
+        }
+
+        [data-chapter-map] [data-chapter-icon] {
+          width: min(58px, 100%) !important;
+          height: min(58px, 100%) !important;
+        }
+
+        [data-chapter-map] [data-chapter-label] {
+          min-height: 0;
+          margin-top: 2px;
+          font-size: clamp(8px, 1.5vw, 10px);
+          line-height: 1.2;
+        }
+
+        [data-chapter-map] [data-chapter-connector] {
+          flex: 1 1 8px;
+          flex-grow: 1 !important;
+          flex-shrink: 1 !important;
+          flex-basis: 8px !important;
+          min-width: 6px !important;
+          margin-top: clamp(22px, 4.2vw, 28px) !important;
+        }
+      }
     `;
     document.head.appendChild(style);
   }

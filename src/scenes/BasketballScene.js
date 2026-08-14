@@ -36,7 +36,9 @@ const TARGET_SCORE = 5;
 const GAMEPLAY_PLAYER_X = 320;
 const GAMEPLAY_PLAYER_Y = 580;
 /** 点击篮球的容错半径，让鼠标/手指不必精确命中篮球中心。 */
-const AIM_HIT_PADDING = 28;
+const AIM_HIT_PADDING = 44;
+/** 触屏上手指会遮挡小球，允许从更大的可视邻域开始拖拽。 */
+const AIM_HIT_RADIUS = 72;
 /** 小于该距离的拖拽视为误触，不发射篮球。 */
 const AIM_MIN_DRAG_DISTANCE = 18;
 
@@ -485,6 +487,8 @@ export class BasketballScene {
 
     // 停止蓄力
     this.isCharging = false;
+    this._setMobileActionVisible(true);
+    this._setMobileActionLabel('互动');
     this.isAiming = false;
     this.aimPointerId = null;
     this.aimPoint = null;
@@ -852,6 +856,9 @@ export class BasketballScene {
     // 注册画布拖拽瞄准与空格键备用蓄力监听
     this._addCanvasAimListeners();
     this._addKeyboardListeners();
+    // 投篮阶段必须由玩家拖拽篮球选择方向和力度。通用动作键不能调用
+    // BallPhysics 的默认瞄准路线，否则手机上会变成“点一下就自动进球”。
+    this._setMobileActionVisible(false);
   }
 
   /**
@@ -870,6 +877,8 @@ export class BasketballScene {
     this.isCharging = false;
     this._removeKeyboardListeners();
     this._removeCanvasAimListeners();
+    this._setMobileActionVisible(true);
+    this._setMobileActionLabel('互动');
     this._destroyChargeMeter();
 
     // 播放过关对话
@@ -990,6 +999,8 @@ export class BasketballScene {
     this.isCharging = false;
     this._removeKeyboardListeners();
     this._removeCanvasAimListeners();
+    this._setMobileActionVisible(true);
+    this._setMobileActionLabel('互动');
     this._destroyChargeMeter();
     this._showRetryOverlay();
   }
@@ -1176,6 +1187,36 @@ export class BasketballScene {
     return true;
   }
 
+  /** 更新移动端动作键在对白/地图/投篮阶段的语义标签。 */
+  _setMobileActionLabel(label) {
+    const actionElement = this.container?.ownerDocument?.querySelector?.('[data-joystick-interact]');
+    if (!actionElement) return;
+    actionElement.textContent = label;
+    actionElement.setAttribute('aria-label', label);
+  }
+
+  /**
+   * 投篮阶段收起通用动作键，避免它绕过拖拽瞄准替玩家走预设路线。
+   * VirtualJoystick 会读取这个标记；这里不直接依赖摇杆实例，兼容桌面端
+   * 没有虚拟摇杆和单元测试只注入普通容器的场景。
+   * @param {boolean} visible
+   */
+  _setMobileActionVisible(visible) {
+    const actionElement = this.container?.ownerDocument?.querySelector?.('[data-joystick-interact]');
+    if (!actionElement) return;
+    if (visible) {
+      actionElement.removeAttribute('data-joystick-action-suppressed');
+      actionElement.hidden = false;
+      actionElement.disabled = false;
+      actionElement.setAttribute('aria-hidden', 'false');
+      return;
+    }
+    actionElement.setAttribute('data-joystick-action-suppressed', '');
+    actionElement.hidden = true;
+    actionElement.disabled = true;
+    actionElement.setAttribute('aria-hidden', 'true');
+  }
+
   // ==================== 画布拖拽输入 ====================
 
   /** 注册拖拽瞄准事件；只在投篮阶段启用，退出时恢复原画布样式。 */
@@ -1246,7 +1287,7 @@ export class BasketballScene {
     if (this.phase !== 'playing' || !this.physics || this.physics.isBallFlying()) return;
     const point = this._getCanvasPoint(event);
     const ball = this.physics.getBallPosition();
-    const hitRadius = Math.max(42, this.physics.getBallRadius() + AIM_HIT_PADDING);
+    const hitRadius = Math.max(AIM_HIT_RADIUS, this.physics.getBallRadius() + AIM_HIT_PADDING);
     if (Math.hypot(point.x - ball.x, point.y - ball.y) > hitRadius) return;
 
     event.preventDefault?.();

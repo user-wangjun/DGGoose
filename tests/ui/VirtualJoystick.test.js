@@ -146,6 +146,11 @@ describe('VirtualJoystick 虚拟摇杆', () => {
       expect(styleText).toContain('env(safe-area-inset-left');
       expect(styleText).toContain('env(safe-area-inset-bottom');
       expect(styleText).toContain('env(safe-area-inset-right');
+      expect(styleText).toContain('--gxe-game-frame-left');
+      expect(styleText).toContain('--gxe-game-frame-right');
+      expect(styleText).toContain('--gxe-game-frame-bottom');
+      expect(styleText).toContain('min(100vw, 177.7778vh)');
+      expect(styleText).toContain('min(100vh, 56.25vw)');
       expect(styleText).toContain('@media (max-width: 960px) and (max-height: 460px) and (orientation: landscape)');
       expect(styleText).toContain('@media (prefers-reduced-motion: reduce)');
       expect(styleText).toContain('z-index: 40');
@@ -154,6 +159,7 @@ describe('VirtualJoystick 虚拟摇杆', () => {
       expect(styleText).toContain('data-joystick-interact');
       expect(styleText).toContain('--joystick-action-right');
       expect(styleText).toContain('--joystick-action-bottom');
+      expect(styleText).toContain('display: none !important');
       expect(base.style.overflow).toBe('hidden');
     });
 
@@ -180,17 +186,41 @@ describe('VirtualJoystick 虚拟摇杆', () => {
       window.removeEventListener('keydown', onKeyDown);
     });
 
-    it('俯视场景已有 Topdown HUD 时隐藏通用交互键，离开后恢复', () => {
+    it('俯视 HUD 常驻但提示未出现时仍保留通用交互键', () => {
       const action = container.querySelector('[data-joystick-interact]');
       const hud = document.createElement('div');
       hud.setAttribute('data-topdown-hud', '');
       document.body.appendChild(hud);
 
       joystick.getVector();
+      expect(action.hidden).toBe(false);
+      expect(action.disabled).toBe(false);
+
+      const prompt = document.createElement('div');
+      prompt.setAttribute('data-topdown-interaction', '');
+      prompt.style.display = 'flex';
+      prompt.getBoundingClientRect = () => ({ width: 120, height: 40 });
+      document.body.appendChild(prompt);
+      joystick.getVector();
       expect(action.hidden).toBe(true);
       expect(action.disabled).toBe(true);
 
+      prompt.remove();
       hud.remove();
+      joystick.getVector();
+      expect(action.hidden).toBe(false);
+      expect(action.disabled).toBe(false);
+    });
+
+    it('阶段标记可暂时收起通用键，避免替玩法自动出手', () => {
+      const action = container.querySelector('[data-joystick-interact]');
+
+      action.setAttribute('data-joystick-action-suppressed', '');
+      joystick.getVector();
+      expect(action.hidden).toBe(true);
+      expect(action.disabled).toBe(true);
+
+      action.removeAttribute('data-joystick-action-suppressed');
       joystick.getVector();
       expect(action.hidden).toBe(false);
       expect(action.disabled).toBe(false);

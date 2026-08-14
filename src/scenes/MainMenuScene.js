@@ -209,7 +209,7 @@ export class MainMenuScene {
     this.domRoot.setAttribute('data-main-menu', '');
     this.domRoot.style.cssText = `
       position: fixed; top: 50%; left: 50%; z-index: 100;
-      width: min(100vw, 177.7778vh); height: min(100vh, 56.25vw);
+      width: var(--gxe-game-frame-width); height: var(--gxe-game-frame-height);
       transform: translate(-50%, -50%);
       pointer-events: none;
       display: flex; flex-direction: column;
@@ -643,6 +643,37 @@ export class MainMenuScene {
         filter: grayscale(0.85) brightness(0.72);
         opacity: 0.78;
         transform: none;
+      }
+
+      /* 低高度手机/平板横屏：保留正式按钮材质，但用 2-2-1 网格释放短屏空间。 */
+      @media (max-width: 1100px) {
+        [data-main-menu] {
+          padding: 0 clamp(14px, 4vw, 40px) clamp(14px, 4.5vh, 30px) 0 !important;
+        }
+        [data-main-menu-buttons] {
+          display: grid !important;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: clamp(5px, 1vw, 10px) !important;
+          width: min(48%, 360px) !important;
+        }
+        [data-main-menu-buttons] [data-main-menu-button] {
+          height: auto !important;
+          aspect-ratio: 960 / 313;
+          min-height: 0 !important;
+          padding: 0 clamp(6px, 1.4vw, 14px) !important;
+          font-size: clamp(10px, 1.5vw, 16px) !important;
+          letter-spacing: 0.03em;
+          line-height: 1.1;
+          white-space: normal;
+        }
+        [data-main-menu-buttons] [data-main-menu-button][data-main-menu-button="continue"] {
+          font-size: clamp(9px, 1.35vw, 14px) !important;
+        }
+        [data-main-menu-buttons] [data-main-menu-button]:last-child {
+          grid-column: 1 / -1;
+          justify-self: center;
+          width: calc(50% - 5px) !important;
+        }
       }
     `;
     document.head.appendChild(style);

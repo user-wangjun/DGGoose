@@ -588,6 +588,137 @@ const SETTINGS_PANEL_CSS = `
     }
   }
 
+  /* 低高度手机横屏优先保证设置面板的完整首屏，避免按钮只存在于不可见滚动区。 */
+  @media (orientation: landscape) and (max-height: 420px) {
+    [data-settings-overlay] {
+      padding: max(6px, env(safe-area-inset-top, 0px))
+        max(6px, env(safe-area-inset-right, 0px))
+        max(6px, env(safe-area-inset-bottom, 0px))
+        max(6px, env(safe-area-inset-left, 0px));
+    }
+
+    [data-settings-panel] {
+      max-height: calc(100dvh - max(12px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px) + 12px));
+      padding: 8px 12px max(8px, env(safe-area-inset-bottom, 0px));
+      border-width: 2px;
+      border-radius: 14px;
+    }
+
+    [data-settings-header] {
+      gap: 8px;
+      margin-bottom: 6px;
+      padding-bottom: 6px;
+    }
+
+    [data-settings-eyebrow] {
+      display: none;
+    }
+
+    [data-settings-title] {
+      min-height: 28px;
+      padding: 4px 11px 5px;
+      font-size: 18px;
+    }
+
+    [data-settings-description] {
+      display: none;
+    }
+
+    [data-settings-flourish] {
+      margin-top: 0;
+      font-size: 16px;
+    }
+
+    [data-settings-section] {
+      margin-bottom: 4px;
+      padding: 4px 7px 0;
+      border-radius: 10px;
+    }
+
+    [data-settings-section-title] {
+      margin-bottom: 2px;
+      font-size: 9px;
+    }
+
+    [data-settings-slider-row] {
+      grid-template-columns: minmax(62px, 0.8fr) minmax(0, 1.8fr) 36px;
+      min-height: 30px;
+      gap: 6px;
+    }
+
+    [data-settings-choice-row],
+    [data-settings-shake-row] {
+      grid-template-columns: minmax(62px, 0.8fr) minmax(0, 2fr);
+      min-height: 35px;
+      gap: 6px;
+    }
+
+    [data-settings-label] {
+      font-size: 11px;
+    }
+
+    [data-settings-slider] {
+      height: 22px;
+    }
+
+    [data-settings-value] {
+      min-width: 36px;
+      padding: 2px 3px;
+      font-size: 11px;
+    }
+
+    [data-lang-option] {
+      min-height: 26px;
+      padding: 2px 6px;
+      gap: 4px;
+      font-size: 9px;
+    }
+
+    [data-lang-radio] {
+      width: 12px;
+      height: 12px;
+    }
+
+    [data-shake-toggle] {
+      width: 48px;
+      height: 26px;
+    }
+
+    [data-shake-toggle]::before {
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+    }
+
+    [data-shake-toggle]:checked::before {
+      transform: translateX(20px);
+    }
+
+    [data-shake-status] {
+      margin-left: 5px;
+      font-size: 10px;
+    }
+
+    [data-settings-actions] {
+      gap: 6px;
+      margin-top: 5px;
+      padding-top: 5px;
+    }
+
+    [data-settings-actions] [data-ui-button] {
+      min-height: 32px;
+      padding-block: 5px;
+      font-size: 11px;
+    }
+
+    [data-reset-status] {
+      min-height: 12px;
+      margin-top: -1px;
+      font-size: 9px;
+    }
+  }
+
   /* 720p 横向桌面仍应在初始位置看到完整操作区，避免把主要按钮藏在滚动折叠线下。 */
   @media (min-height: 501px) and (max-height: 760px) {
     [data-settings-panel] {

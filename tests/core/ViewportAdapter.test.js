@@ -55,6 +55,41 @@ describe('ViewportAdapter 双端适配', () => {
     });
   });
 
+  describe('可视视口适配', () => {
+    it('优先使用 visualViewport，避免移动端浏览器地址栏遮住游戏画面', () => {
+      const originalVisualViewport = window.visualViewport;
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: { width: 844, height: 347 },
+      });
+
+      expect(ViewportAdapter.getViewportSize()).toEqual({ width: 844, height: 347 });
+
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: originalVisualViewport,
+      });
+    });
+
+    it('visualViewport 无有效尺寸时回退到 window.innerWidth/innerHeight', () => {
+      const originalVisualViewport = window.visualViewport;
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: { width: 0, height: 0 },
+      });
+
+      expect(ViewportAdapter.getViewportSize()).toEqual({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: originalVisualViewport,
+      });
+    });
+  });
+
   describe('画布缩放计算', () => {
     it('计算等比缩放（容器更宽时按高度适配）', () => {
       const scale = ViewportAdapter.calcScale({
@@ -164,6 +199,29 @@ describe('ViewportAdapter 双端适配', () => {
       // CSS 宽 = 1280 * 0.8 = 1024, CSS 高 = 720 * 0.8 = 576
       expect(canvas.style.width).toBe('1024px');
       expect(canvas.style.height).toBe('576px');
+    });
+
+    it('fitCanvas 使用可视视口尺寸，而不是被浏览器 UI 撑大的布局视口', () => {
+      const originalVisualViewport = window.visualViewport;
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: { width: 844, height: 347 },
+      });
+
+      adapter = new ViewportAdapter();
+      const canvas = document.createElement('canvas');
+      canvas.width = 1280;
+      canvas.height = 720;
+      adapter.fitCanvas(canvas);
+
+      // 347/720 受高度约束；画框应完整落在可视区域内。
+      expect(canvas.style.width).toBe('616.8888888888889px');
+      expect(canvas.style.height).toBe('347px');
+
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: originalVisualViewport,
+      });
     });
 
     it('fitCanvas 存储画布引用供 resize 时重新适配', () => {

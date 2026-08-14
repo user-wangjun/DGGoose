@@ -89,4 +89,26 @@ describe('俯视场景共享控制器', () => {
     expect(controller.handleInteract()).toBe(false);
     expect(onInteract).not.toHaveBeenCalled();
   });
+
+  it('俯视 HUD 与 16:9 游戏画框对齐，不占用画框外黑边', () => {
+    const container = document.createElement('div');
+    const canvas = document.createElement('canvas');
+    const controller = new TopdownController({
+      player: { x: 100, y: 100, position: { x: 100, y: 100 } },
+      input: { getVector: () => ({ x: 0, y: 0, run: false }) },
+      container,
+      canvas,
+    });
+
+    controller.mount();
+
+    expect(controller.domRoot.style.position).toBe('fixed');
+    expect(controller.domRoot.style.top).toBe('50%');
+    expect(controller.domRoot.style.left).toBe('50%');
+    expect(controller.domRoot.style.width).toBe('var(--gxe-game-frame-width)');
+    expect(controller.domRoot.style.height).toBe('var(--gxe-game-frame-height)');
+    expect(controller.domRoot.style.transform).toBe('translate(-50%, -50%)');
+
+    controller.destroy();
+  });
 });

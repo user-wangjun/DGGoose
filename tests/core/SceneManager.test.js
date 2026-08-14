@@ -70,6 +70,28 @@ describe('SceneManager 场景状态机', () => {
     expect(scene.onEnter).toHaveBeenCalledWith({ level: 3, from: 'menu' });
   });
 
+  it('提交切换前调用 beforeChange，且发生在旧场景 onExit 之前', () => {
+    const order = [];
+    const beforeChange = vi.fn(() => order.push('beforeChange'));
+    const sm = new SceneManager({ beforeChange });
+    const sceneA = createStubScene('A');
+    const sceneB = createStubScene('B');
+    sceneA.onExit.mockImplementation(() => order.push('A.onExit'));
+    sceneB.onEnter.mockImplementation(() => order.push('B.onEnter'));
+    sm.register('a', sceneA);
+    sm.register('b', sceneB);
+
+    sm.change('a');
+    sm.change('b', { reason: 'resume' });
+
+    expect(beforeChange).toHaveBeenLastCalledWith({
+      fromName: 'a',
+      toName: 'b',
+      params: { reason: 'resume' },
+    });
+    expect(order).toEqual(['beforeChange', 'beforeChange', 'A.onExit', 'B.onEnter']);
+  });
+
   it('场景切换后启动地图转场，初始化场景不启动', () => {
     const transition = { start: vi.fn(), update: vi.fn(), draw: vi.fn() };
     const sm = new SceneManager({ transition });

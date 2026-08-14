@@ -45,10 +45,17 @@ export class ViewportAdapter {
     this._orientationHandler = () => this.checkOrientation();
     this._resizeHandler = () => this.checkOrientation();
 
-    if (screen.orientation) {
+    if (typeof screen !== 'undefined' && screen.orientation) {
       screen.orientation.addEventListener('change', this._orientationHandler);
     }
     window.addEventListener('resize', this._resizeHandler);
+    // Android 浏览器展开/收起地址栏时，window.resize 不一定触发，
+    // 但 visualViewport 会报告实际可见区域的变化。画布和 DOM 组件都必须
+    // 跟随这两个事件，否则顶部 HUD 会被浏览器 UI 盖住，底部按钮会落出屏幕。
+    if (window.visualViewport?.addEventListener) {
+      window.visualViewport.addEventListener('resize', this._resizeHandler);
+      window.visualViewport.addEventListener('scroll', this._resizeHandler);
+    }
 
     // 初始检测
     this.checkOrientation();
@@ -61,13 +68,13 @@ export class ViewportAdapter {
   checkOrientation() {
     let landscape;
 
-    const viewportW = Number(window.innerWidth);
-    const viewportH = Number(window.innerHeight);
+    const { width: viewportW, height: viewportH } = ViewportAdapter.getViewportSize();
+    ViewportAdapter.syncViewportCssVariables(viewportW, viewportH);
 
     if (viewportW > 0 && viewportH > 0) {
-      // 当前页面的实际可用区域是布局和画布适配的最终依据。
+      // 当前页面真正可见的区域是布局和画布适配的最终依据。
       landscape = ViewportAdapter.isLandscape(viewportW, viewportH);
-    } else if (screen.orientation) {
+    } else if (typeof screen !== 'undefined' && screen.orientation) {
       // 无有效视口数据时使用现代浏览器方向 API。
       landscape = screen.orientation.type.startsWith('landscape');
     } else if (typeof window.orientation !== 'undefined') {
@@ -94,11 +101,13 @@ export class ViewportAdapter {
    */
   fitCanvas(canvas) {
     this._canvas = canvas;
+    const { width: viewportW, height: viewportH } = ViewportAdapter.getViewportSize();
+    ViewportAdapter.syncViewportCssVariables(viewportW, viewportH);
     const scale = ViewportAdapter.calcScale({
       logicalW: canvas.width / ViewportAdapter.getDpr(),
       logicalH: canvas.height / ViewportAdapter.getDpr(),
-      viewportW: window.innerWidth,
-      viewportH: window.innerHeight,
+      viewportW,
+      viewportH,
     });
     // 等比缩放：CSS 尺寸 = 逻辑尺寸 × 缩放比
     canvas.style.width = (canvas.width / ViewportAdapter.getDpr()) * scale + 'px';
@@ -127,11 +136,15 @@ export class ViewportAdapter {
    * 销毁：移除遮罩和事件监听
    */
   destroy() {
-    if (this._orientationHandler && screen.orientation) {
+    if (this._orientationHandler && typeof screen !== 'undefined' && screen.orientation) {
       screen.orientation.removeEventListener('change', this._orientationHandler);
     }
     if (this._resizeHandler) {
       window.removeEventListener('resize', this._resizeHandler);
+      if (window.visualViewport?.removeEventListener) {
+        window.visualViewport.removeEventListener('resize', this._resizeHandler);
+        window.visualViewport.removeEventListener('scroll', this._resizeHandler);
+      }
     }
     if (this.overlay && this.overlay.parentNode) {
       this.overlay.parentNode.removeChild(this.overlay);
@@ -168,6 +181,40 @@ export class ViewportAdapter {
   static getDpr() {
     const dpr = window.devicePixelRatio || 1;
     return Math.min(Math.max(dpr, 1), 3);
+  }
+
+  /**
+   * 读取实际可见视口尺寸。
+   * 移动端浏览器的 innerHeight 可能仍包含展开的地址栏，visualViewport 才是
+   * 用户此刻真正能看到、也能操作到的区域；桌面端或旧浏览器则回退到 window。
+   * @returns {{width:number,height:number}}
+   */
+  static getViewportSize() {
+    if (typeof window === 'undefined') return { width: 0, height: 0 };
+
+    const visualWidth = Number(window.visualViewport?.width);
+    const visualHeight = Number(window.visualViewport?.height);
+    return {
+      width: visualWidth > 0 ? visualWidth : Number(window.innerWidth) || 0,
+      height: visualHeight > 0 ? visualHeight : Number(window.innerHeight) || 0,
+    };
+  }
+
+  /**
+   * 把 JS 读取到的可视视口同步给所有 DOM 组件共享的 CSS 变量。
+   * 这样即使浏览器不支持 dvh，组件仍会和 fitCanvas 使用同一套尺寸。
+   * @param {number} width
+   * @param {number} height
+   */
+  static syncViewportCssVariables(width, height) {
+    if (typeof document === 'undefined' || !document.documentElement) return;
+
+    if (Number(width) > 0) {
+      document.documentElement.style.setProperty('--gxe-viewport-width', `${Number(width)}px`);
+    }
+    if (Number(height) > 0) {
+      document.documentElement.style.setProperty('--gxe-viewport-height', `${Number(height)}px`);
+    }
   }
 
   /**
