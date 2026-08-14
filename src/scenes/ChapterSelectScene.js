@@ -193,8 +193,8 @@ export function createChapterSelectScene({ saveSystem, badgeSystem, sceneManager
       // ---- 章节地图区域（居中展示，可横向滚动） ----
       const mapWrapper = document.createElement('div');
       mapWrapper.style.cssText = `
-        flex: 1; display: flex; align-items: center; justify-content: center;
-        overflow-x: auto; overflow-y: hidden; padding: 0 16px 32px;
+        flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+        overflow: auto; padding: 0 16px 32px;
       `;
 
       // Toast 实例（供 ChapterMap 锁定节点提示使用）

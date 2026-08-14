@@ -6,13 +6,13 @@
 
 /**
  * 图集管理：从 JSON 配置构建帧坐标
- * JSON 结构: { atlas: { src, frameW, frameH }, animations: { name: { row, frames, fps, loop } } }
+ * JSON 结构: { atlas: { src, frameW, frameH }, animations: { name: { row, frames, fps, loop, frameAnchors? } } }
  */
 export class SpriteSheet {
   /**
    * @param {Object} config - 动画 JSON 配置
    * @param {Object} config.atlas - 图集信息 { src, frameW, frameH }
-   * @param {Object} config.animations - 动画定义 { name: { row, frames, fps, loop, anchorX?, anchorY? } }
+   * @param {Object} config.animations - 动画定义 { name: { row, frames, fps, loop, anchorX?, anchorY?, frameAnchors? } }
    */
   constructor(config) {
     this.frameW = config.atlas.frameW;
@@ -43,15 +43,16 @@ export class SpriteSheet {
     const columns = anim.columns ?? this.columns;
     const column = columns ? index % columns : index;
     const row = (anim.row ?? 0) + (columns ? Math.floor(index / columns) : 0);
+    const frameAnchor = anim.frameAnchors?.[index] || {};
 
     return {
       x: column * this.frameW,
       y: row * this.frameH,
       w: this.frameW,
       h: this.frameH,
-      // 锚点默认为帧中心（0.5, 0.5），表示角色中心对齐到绘制点
-      anchorX: anim.anchorX ?? 0.5,
-      anchorY: anim.anchorY ?? 0.5,
+      // 逐帧锚点优先，兼容没有逐帧对齐数据的旧图集。
+      anchorX: frameAnchor.x ?? anim.anchorX ?? 0.5,
+      anchorY: frameAnchor.y ?? anim.anchorY ?? 0.5,
     };
   }
 }

@@ -159,7 +159,13 @@ export class SettingsService {
     }
     this._debounceTimer = setTimeout(() => {
       this._debounceTimer = null;
-      this._persist();
+      // 延迟回调没有同步调用方可以接收异常；持久化失败由 flush() 的同步路径
+      // 继续抛出，后台防抖写入则记录错误，避免页面/测试环境销毁后产生未处理异常。
+      try {
+        this._persist();
+      } catch (error) {
+        this._lastPersistError = error;
+      }
     }, DEBOUNCE_DELAY);
   }
 

@@ -425,6 +425,25 @@ describe('SaveSystem 存档系统', () => {
       expect(result.choice).toBe('ch1');
     });
 
+    it('后续 autoSave 未传 choice 时保留已经选定的 choice', () => {
+      saveSystem.autoSave({
+        chapter: 'ch1',
+        checkpoint: 'start',
+        badges: [],
+        settings: {},
+      });
+      saveSystem.setChoice('slot1', 'ch1');
+
+      saveSystem.autoSave({
+        chapter: 'ch2',
+        checkpoint: 'start',
+        badges: ['basketball'],
+        settings: {},
+      });
+
+      expect(saveSystem.getChoice('slot1')).toBe('ch1');
+    });
+
     it('setChoice 写入后 getChoice 返回正确值', () => {
       saveSystem.autoSave({
         chapter: 'ch1',

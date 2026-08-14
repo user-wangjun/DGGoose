@@ -57,4 +57,38 @@ describe('P0 美术资源交付契约', () => {
     expect(size.width).toBeGreaterThan(0);
     expect(size.height).toBeGreaterThan(0);
   });
+
+  it('新增动作组均已转成独立透明运行时图集，帧数与清单一致', () => {
+    const manifestPath = path.join(GAME_ROOT, 'assets/characters/actions/action-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    expect(manifest.totalGroups).toBe(manifest.groups.length);
+    expect(manifest.totalFrames).toBe(
+      manifest.groups.reduce((total, group) => total + group.frames, 0),
+    );
+
+    const approvedNpcCharacters = new Set(['教练', '果农阿婆', '高新工程师', '学长', '学姐']);
+    const npcCharacters = new Set(
+      manifest.groups
+        .filter((group) => group.characterType === 'npc' && group.status !== 'reference-only')
+        .map((group) => group.character),
+    );
+    for (const character of approvedNpcCharacters) {
+      expect(npcCharacters.has(character)).toBe(true);
+    }
+    const industrialWorkerGroups = manifest.groups.filter(
+      (group) => group.character === '工业园工人',
+    );
+    expect(industrialWorkerGroups.length).toBeGreaterThan(0);
+    expect(industrialWorkerGroups.every((group) => group.status !== 'reference-only')).toBe(true);
+
+    for (const group of manifest.groups) {
+      const relativePath = `assets/characters/actions/${group.sheet}`;
+      const size = readPngSize(path.join(GAME_ROOT, relativePath));
+      expect(size).toMatchObject({
+        width: 384 * group.frames,
+        height: 384,
+        colorType: 6,
+      });
+    }
+  });
 });

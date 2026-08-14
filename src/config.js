@@ -112,6 +112,26 @@ export const AUDIO_MANIFEST = [
   { type: 'audio', url: 'assets/audio/sfx_jump.wav' },
 ];
 
+/** 第一章俯视移动地图使用的正式篮球馆背景。 */
+export const BASKETBALL_SCENE_BACKGROUND_URL = new URL(
+  '../assets/bg/scene-02-basketball-gym/scene-02-background.png',
+  import.meta.url,
+).href;
+
+/** 第一章投篮玩法背景；移除静态右侧篮架，由 Canvas 前景篮筐负责上下移动。 */
+export const BASKETBALL_SHOOTING_BACKGROUND_URL = new URL(
+  '../assets/bg/scene-02-basketball-gym/scene-02-background-shooting.png',
+  import.meta.url,
+).href;
+
+/** 第三章烧鹅店正式横屏地图背景；由 Vite 统一收集到构建产物。 */
+export const STEALTH_BACKGROUND_URL = new URL(
+  '../assets/bg/scene-04-roast-goose-shop/scene-04-background.png',
+  import.meta.url,
+).href;
+
+import { SCENE_OBJECT_PRELOAD } from './data/sceneObjectAssets.js';
+
 /**
  * 分章节预加载清单（对应 PRD §6.3 首屏仅加载主菜单资源，章节按需预加载）
  * 首屏（menu）仅加载菜单 BGM；进入各章节时预加载该章资源。
@@ -121,30 +141,40 @@ export const CHAPTER_PRELOAD = {
     { type: 'audio', url: 'assets/audio/bgm_menu.mp3' },
   ],
   prologue: [
+    ...SCENE_OBJECT_PRELOAD.prologue,
     { type: 'audio', url: 'assets/audio/bgm_factory.mp3' },
   ],
   ch1: [
+    ...SCENE_OBJECT_PRELOAD.ch1,
+    { type: 'image', url: BASKETBALL_SCENE_BACKGROUND_URL },
+    { type: 'image', url: BASKETBALL_SHOOTING_BACKGROUND_URL },
     { type: 'audio', url: 'assets/audio/bgm_basketball.mp3' },
     { type: 'audio', url: 'assets/audio/sfx_goal.wav' },
     { type: 'audio', url: 'assets/audio/sfx_miss.wav' },
   ],
   ch2: [
+    ...SCENE_OBJECT_PRELOAD.ch2,
     { type: 'audio', url: 'assets/audio/bgm_lychee.mp3' },
     { type: 'audio', url: 'assets/audio/sfx_gate.wav' },
     { type: 'audio', url: 'assets/audio/sfx_error.wav' },
   ],
   ch3: [
+    ...SCENE_OBJECT_PRELOAD.ch3,
+    { type: 'image', url: STEALTH_BACKGROUND_URL },
     { type: 'audio', url: 'assets/audio/bgm_goose.mp3' },
     { type: 'audio', url: 'assets/audio/sfx_caught.wav' },
     { type: 'audio', url: 'assets/audio/sfx_steal.wav' },
   ],
   ch4: [
+    ...SCENE_OBJECT_PRELOAD.ch4,
     { type: 'audio', url: 'assets/audio/bgm_industrial.mp3' },
   ],
   ch5: [
+    ...SCENE_OBJECT_PRELOAD.ch5,
     { type: 'audio', url: 'assets/audio/bgm_campus.mp3' },
   ],
   finale: [
+    ...SCENE_OBJECT_PRELOAD.finale,
     { type: 'audio', url: 'assets/audio/bgm_songshan.mp3' },
     { type: 'audio', url: 'assets/audio/sfx_ending.wav' },
   ],
@@ -153,6 +183,16 @@ export const CHAPTER_PRELOAD = {
 /** 主菜单背景样板 URL，由 Vite 负责产出开发/构建环境下的最终资源地址。 */
 export const MAIN_MENU_BACKGROUND_URL = new URL('../assets/bg/bg_menu_cn.png', import.meta.url).href;
 
+/** 六个正式结尾 CG 的本地资源 URL，按结局 id 与数据层保持一一对应。 */
+export const ENDING_CG_URL_MAP = {
+  basketball_life: new URL('../assets/bg/cg_ending_basketball_life.png', import.meta.url).href,
+  lychee_heir: new URL('../assets/bg/cg_ending_lychee_heir.png', import.meta.url).href,
+  goose_heir: new URL('../assets/bg/cg_ending_goose_heir.png', import.meta.url).href,
+  tech_star: new URL('../assets/bg/cg_ending_tech_star.png', import.meta.url).href,
+  college_freshman: new URL('../assets/bg/cg_ending_college_freshman.png', import.meta.url).href,
+  intro_dongguan: new URL('../assets/bg/cg_ending_intro_dongguan.png', import.meta.url).href,
+};
+
 /** 主菜单正面莞小鹅贴图 URL，独立于章节侧身序列帧。 */
 export const MAIN_MENU_GOOSE_URL = new URL('../assets/characters/gxe/gxe_menu_front.png', import.meta.url).href;
 
@@ -160,16 +200,28 @@ export const MAIN_MENU_GOOSE_URL = new URL('../assets/characters/gxe/gxe_menu_fr
 const GXE_PORTRAIT_URL = new URL('../assets/ui/portraits/gxe_portrait_default_alpha.png', import.meta.url).href;
 
 /**
+ * 五张已复核的 NPC 对话立绘资源。
+ * 这些图是对话 UI 用的透明立绘，不等同于场景内透明 NPC 动作资源。
+ */
+const NPC_PORTRAIT_URLS = {
+  coach: new URL('../assets/characters/npcs/npc_coach_dialogue.png', import.meta.url).href,
+  lycheeFarmer: new URL('../assets/characters/npcs/npc_farmer_lychee_dialogue.png', import.meta.url).href,
+  roastGooseOwner: new URL('../assets/characters/npcs/npc_roast_goose_shop_owner_dialogue.png', import.meta.url).href,
+  senior: new URL('../assets/characters/npcs/npc_dgut_senior_dialogue.png', import.meta.url).href,
+  seniorFemale: new URL('../assets/characters/npcs/npc_dgut_senior_female_dialogue.png', import.meta.url).href,
+};
+
+/**
  * 对话立绘资源映射表
  * key: 说话人名称，value: 立绘图片路径
  * 莞小鹅为左侧固定立绘，其他角色显示在右侧
- * 暂无图片资源的NPC使用占位路径，AssetLoader缺文件时静默降级。
+ * NPC 立绘使用 Vite 可追踪的本地资源 URL；找不到角色时由 DialogueBox 隐藏右侧立绘。
  */
 export const PORTRAIT_MAP = {
   '莞小鹅': GXE_PORTRAIT_URL,
-  '教练': 'assets/ui/portraits/coach_portrait_default.png',
-  '果农阿婆': 'assets/ui/portraits/grandma_portrait_default.png',
-  '烧鹅店老板': 'assets/ui/portraits/boss_portrait_default.png',
-  '学长': 'assets/ui/portraits/senior_bro_portrait_default.png',
-  '学姐': 'assets/ui/portraits/senior_sis_portrait_default.png',
+  '教练': NPC_PORTRAIT_URLS.coach,
+  '果农阿婆': NPC_PORTRAIT_URLS.lycheeFarmer,
+  '烧鹅店老板': NPC_PORTRAIT_URLS.roastGooseOwner,
+  '学长': NPC_PORTRAIT_URLS.senior,
+  '学姐': NPC_PORTRAIT_URLS.seniorFemale,
 };

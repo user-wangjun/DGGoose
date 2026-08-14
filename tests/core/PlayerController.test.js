@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlayerController } from '../../src/core/PlayerController.js';
 import { GAME } from '../../src/config.js';
+import { TopdownController } from '../../src/core/TopdownController.js';
 
 /**
  * PlayerController 测试套件
@@ -144,7 +145,48 @@ describe('PlayerController 角色控制', () => {
     });
   });
 
+  describe('碰撞后运动状态同步', () => {
+    it('连续顶住障碍物时，实际停住后速度和动画回到 idle', () => {
+      const input = createStubInput({ x: 1, y: 0, run: false });
+      const topdown = new TopdownController({
+        player: controller,
+        input,
+      });
+      topdown.setMap({
+        bounds: { left: 24, top: 80, right: 1256, bottom: 680 },
+        obstacles: [{ x: 110, y: 100, width: 20, height: 100 }],
+        playerRadius: 20,
+      });
+      controller.setPosition(80, 150);
+
+      topdown.update(0.1);
+      expect(controller.x).toBeCloseTo(87.5, 5);
+      expect(controller.animState).toBe('walk');
+
+      topdown.update(0.1);
+      expect(controller.x).toBeCloseTo(87.5, 5);
+      expect(controller.velocity).toEqual({ x: 0, y: 0 });
+      expect(controller.animState).toBe('idle');
+    });
+  });
+
   describe('只读暴露', () => {
+    it('保存并恢复位置、速度、朝向和动画状态', () => {
+      const input = createStubInput({ x: -1, y: 0, run: true });
+      controller.update(0.25, input);
+
+      const snapshot = controller.getSaveState();
+      const restored = new PlayerController({
+        x: 0,
+        y: 0,
+        bounds: { width: GAME.WIDTH, height: GAME.HEIGHT },
+      });
+
+      restored.restoreSaveState(snapshot);
+
+      expect(restored.getSaveState()).toEqual(snapshot);
+    });
+
     it('position 返回 {x, y} 副本（不可外部修改）', () => {
       const pos = controller.position;
       pos.x = 999;

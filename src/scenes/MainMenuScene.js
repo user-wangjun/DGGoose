@@ -1,4 +1,6 @@
-import { GAME, CHAPTERS, MAIN_MENU_BACKGROUND_URL, MAIN_MENU_GOOSE_URL } from '../config.js';
+import { GAME, CHAPTERS, MAIN_MENU_BACKGROUND_URL } from '../config.js';
+import { GXE_SPRITE_SPECS } from '../core/GooseSprite.js';
+import { SpriteSheet } from '../core/SpriteAnimation.js';
 import { Button } from '../ui/Button.js';
 import { applyButtonStyle } from '../ui/ButtonTheme.js';
 import { Overlay } from '../ui/Overlay.js';
@@ -13,12 +15,51 @@ const LOADING_DURATION = 1200;
 /** 加载条 keyframes 样式注入标识，避免重复注入 */
 const LOADING_STYLE_ID = 'main-menu-loading-keyframes';
 
+/** 主菜单正式标题与按钮材质；文字仍由 DOM 按钮叠加，保留现有交互文案。 */
+const MAIN_MENU_TITLE_URL = new URL('../../assets/ui/main-menu/main-menu-title.png', import.meta.url).href;
+const MAIN_MENU_BUTTON_ASSETS = Object.freeze({
+  start: Object.freeze({
+    normal: new URL('../../assets/ui/main-menu/button-start-normal.png', import.meta.url).href,
+    hover: new URL('../../assets/ui/main-menu/button-start-hover.png', import.meta.url).href,
+    click: new URL('../../assets/ui/main-menu/button-start-click.png', import.meta.url).href,
+  }),
+  continue: Object.freeze({
+    normal: new URL('../../assets/ui/main-menu/button-continue-normal.png', import.meta.url).href,
+    hover: new URL('../../assets/ui/main-menu/button-continue-hover.png', import.meta.url).href,
+    click: new URL('../../assets/ui/main-menu/button-continue-click.png', import.meta.url).href,
+  }),
+  settings: Object.freeze({
+    normal: new URL('../../assets/ui/main-menu/button-settings-normal.png', import.meta.url).href,
+    hover: new URL('../../assets/ui/main-menu/button-settings-hover.png', import.meta.url).href,
+    click: new URL('../../assets/ui/main-menu/button-settings-click.png', import.meta.url).href,
+  }),
+  about: Object.freeze({
+    normal: new URL('../../assets/ui/main-menu/button-about-normal.png', import.meta.url).href,
+    hover: new URL('../../assets/ui/main-menu/button-about-hover.png', import.meta.url).href,
+    click: new URL('../../assets/ui/main-menu/button-about-click.png', import.meta.url).href,
+  }),
+});
+
+/** 主菜单复用游戏内正式待机图集，确保入口页和实际角色保持同一身份。 */
+const MENU_GOOSE_IDLE_SPEC = GXE_SPRITE_SPECS.idle;
+const MENU_GOOSE_WALK_SPEC = GXE_SPRITE_SPECS.walk;
+const MENU_GOOSE_START_X = GAME.WIDTH * 0.2;
+const MENU_GOOSE_TARGET_X = GAME.WIDTH * 0.31;
+const MENU_GOOSE_WALK_DURATION = 2.4;
+const MENU_GOOSE_IDLE_DURATION = 5;
+const MENU_GOOSE_CYCLE_DURATION = (MENU_GOOSE_WALK_DURATION * 2) + (MENU_GOOSE_IDLE_DURATION * 2);
+/** 主菜单与游戏内共享同一套图集坐标和逐帧落脚点。 */
+const MENU_GOOSE_SHEETS = {
+  idle: new SpriteSheet(MENU_GOOSE_IDLE_SPEC.config),
+  walk: new SpriteSheet(MENU_GOOSE_WALK_SPEC.config),
+};
+
 /**
  * 主菜单场景（对应 PRD §5 F1）
  *
  * 职责分工：
- * - Canvas 层：绘制主菜单背景样板与标题文字（"鹅厂出逃记"）
- * - DOM 层：叠加 4 个按钮（开始新游戏 / 继续游戏 / 操作说明 / 设置）与版本号
+ * - Canvas 层：绘制主菜单背景样板、正式标题图与莞小鹅动画
+ * - DOM 层：叠加 5 个按钮（开始新游戏 / 继续游戏 / 结尾回顾 / 操作说明 / 设置）与版本号
  *
  * 交互流程：
  * - 开始新游戏：有存档→确认覆盖层→加载条→序章；无存档→直接加载条→序章
@@ -32,13 +73,15 @@ export class MainMenuScene {
    * @param {SceneManager} deps.sceneManager - 场景管理器，用于切换场景
    * @param {SaveSystem} deps.saveSystem - 存档系统，用于检测与读取存档
    * @param {SettingsPanel} deps.settingsPanel - 设置面板实例，点击设置时弹出
+   * @param {EndingReviewPanel} [deps.endingReviewPanel] - 结尾回顾面板实例
    * @param {AssetLoader} [deps.assetLoader] - 图片资源加载器，用于加载主菜单背景
    * @param {HTMLElement} deps.container - UI 挂载容器（通常为 #ui-root）
    */
-  constructor({ sceneManager, saveSystem, settingsPanel, assetLoader, container }) {
+  constructor({ sceneManager, saveSystem, settingsPanel, endingReviewPanel = null, assetLoader, container }) {
     this.sceneManager = sceneManager;
     this.saveSystem = saveSystem;
     this.settingsPanel = settingsPanel;
+    this.endingReviewPanel = endingReviewPanel;
     this.assetLoader = assetLoader || null;
     this.container = container;
 
@@ -63,12 +106,27 @@ export class MainMenuScene {
     this.backgroundImage = null;
     /** 主菜单背景加载 Promise，避免场景重进时重复发起请求 */
     this.backgroundLoadPromise = null;
-    /** 主菜单正面莞小鹅贴图 */
+    /** 正式主菜单标题图 */
+    this.titleImage = null;
+    /** 标题图加载 Promise，避免场景重进时重复发起请求 */
+    this.titleLoadPromise = null;
+    /** 主菜单使用的游戏内莞小鹅待机图集 */
     this.menuGooseImage = null;
-    /** 主菜单正面莞小鹅加载 Promise，避免场景重进时重复请求 */
+    /** 主菜单使用的游戏内莞小鹅行走图集 */
+    this.menuGooseWalkImage = null;
+    /** 主菜单莞小鹅图集加载 Promise，避免场景重进时重复请求 */
     this.menuGooseLoadPromise = null;
     /** 主菜单环境动效累计时间（秒） */
     this.motionTime = 0;
+
+    // 回顾面板由主菜单统一纳入覆盖层生命周期，关闭时释放 activeOverlay 引用。
+    if (this.endingReviewPanel) {
+      this.endingReviewPanel.onClose = () => {
+        if (this.activeOverlay === this.endingReviewPanel) {
+          this.activeOverlay = null;
+        }
+      };
+    }
   }
 
   // ==================== 场景生命周期 ====================
@@ -79,6 +137,7 @@ export class MainMenuScene {
    */
   onEnter(params) {
     this._loadBackground();
+    this._loadTitle();
     this._loadMenuGoose();
     this._buildDom();
     this._refreshContinueButton();
@@ -110,6 +169,10 @@ export class MainMenuScene {
    * 场景退出：取消定时器、关闭覆盖层、销毁按钮、移除 DOM
    */
   onExit() {
+    // 场景切换前释放菜单按钮焦点，避免随后按空格/回车再次触发已退出菜单的原生 click。
+    const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+    activeElement?.blur?.();
+
     // 取消未完成的加载定时器，避免切换后仍触发 sceneManager.change
     if (this.loadingTimer) {
       clearTimeout(this.loadingTimer);
@@ -151,36 +214,36 @@ export class MainMenuScene {
       pointer-events: none;
       display: flex; flex-direction: column;
       align-items: flex-end; justify-content: flex-end;
-      padding: 0 4.5% clamp(44px, 7vh, 58px) 0;
+      padding: 0 clamp(14px, 5.5vw, 96px) clamp(10px, 4.5vh, 50px) 0;
     `;
 
     // 按钮组容器，开启 pointer-events 以接收点击
     const buttonGroup = document.createElement('div');
     buttonGroup.setAttribute('data-main-menu-buttons', '');
     buttonGroup.style.cssText = `
-      display: flex; flex-direction: column; gap: clamp(8px, 2.2vh, 14px);
-      align-items: stretch; min-width: clamp(160px, 18vw, 220px);
+      display: flex; flex-direction: column; gap: clamp(4px, 0.8vw, 10px);
+      align-items: stretch; width: clamp(210px, 25vw, 360px);
       pointer-events: auto;
     `;
 
-    // 按显示顺序创建按钮：开始新游戏 / 继续游戏 / 操作说明 / 设置
-    const newGameButton = this._createButton('开始新游戏', () => this._onNewGameClick(), 'primary');
-    this.continueButton = this._createButton('继续游戏', () => this._onContinueClick(), 'primary');
-    const helpButton = this._createButton('操作说明', () => this._onHelpClick(), 'secondary');
-    const settingsButton = this._createButton('设置', () => this._onSettingsClick(), 'secondary');
+    // 按显示顺序创建按钮：开始新游戏 / 继续游戏 / 结尾回顾 / 操作说明 / 设置
+    const newGameButton = this._createButton('开始新游戏', () => this._onNewGameClick(), 'primary', 'start');
+    this.continueButton = this._createButton('继续游戏', () => this._onContinueClick(), 'primary', 'continue');
+    const endingReviewButton = this._createButton('结尾回顾', () => this._onEndingReviewClick(), 'secondary', 'about');
+    const helpButton = this._createButton('操作说明', () => this._onHelpClick(), 'secondary', 'about');
+    const settingsButton = this._createButton('设置', () => this._onSettingsClick(), 'secondary', 'settings');
 
     // 继续游戏按钮初始禁用，_refreshContinueButton 中按存档状态调整
     this.continueButton.setDisabled(true);
 
-    buttonGroup.appendChild(newGameButton.create());
-    buttonGroup.appendChild(this.continueButton.create());
-    buttonGroup.appendChild(helpButton.create());
-    buttonGroup.appendChild(settingsButton.create());
+    [newGameButton, this.continueButton, endingReviewButton, helpButton, settingsButton]
+      .forEach((button) => buttonGroup.appendChild(this._createStyledMenuButton(button)));
 
     this.domRoot.appendChild(buttonGroup);
     this.domRoot.appendChild(this._buildVersionLabel());
 
     this.container.appendChild(this.domRoot);
+    this._ensureMainMenuStyles();
   }
 
   /**
@@ -188,10 +251,11 @@ export class MainMenuScene {
    * @param {string} label - 按钮文本
    * @param {Function} onClick - 点击回调
    * @param {string} variant - 样式变体：'primary' | 'secondary'
+   * @param {string} assetKey - 正式按钮材质 key
    * @returns {Button}
    * @private
    */
-  _createButton(label, onClick, variant) {
+  _createButton(label, onClick, variant, assetKey) {
     const button = new Button({
       label,
       onClick,
@@ -200,8 +264,22 @@ export class MainMenuScene {
       size: variant === 'primary' ? 'lg' : 'md',
       width: 'full',
     });
+    button.menuAssetKey = assetKey;
     this.buttons.push(button);
     return button;
+  }
+
+  /** 将正式按钮状态图绑定到现有 Button 热区，不改变按钮事件与禁用逻辑。 */
+  _createStyledMenuButton(button) {
+    const element = button.create();
+    const assets = MAIN_MENU_BUTTON_ASSETS[button.menuAssetKey];
+    element.dataset.mainMenuButton = button.menuAssetKey;
+    if (assets) {
+      element.style.setProperty('--menu-button-normal', `url("${assets.normal}")`);
+      element.style.setProperty('--menu-button-hover', `url("${assets.hover}")`);
+      element.style.setProperty('--menu-button-click', `url("${assets.click}")`);
+    }
+    return element;
   }
 
   /**
@@ -221,6 +299,28 @@ export class MainMenuScene {
   }
 
   // ==================== Canvas 绘制 ====================
+
+  /** 加载正式标题图；失败时由 _drawTitle 保留文字回退。 */
+  _loadTitle() {
+    if (this.titleLoadPromise) return this.titleLoadPromise;
+
+    if (!this.assetLoader) {
+      this.titleLoadPromise = Promise.resolve(null);
+      return this.titleLoadPromise;
+    }
+
+    this.titleLoadPromise = this.assetLoader.loadImage(MAIN_MENU_TITLE_URL)
+      .then((image) => {
+        this.titleImage = image;
+        return image;
+      })
+      .catch((error) => {
+        console.warn('[鹅厂出逃记] 主菜单标题图加载失败，使用文字回退:', error);
+        return null;
+      });
+
+    return this.titleLoadPromise;
+  }
 
   /**
    * 异步加载主菜单背景，保留渐变回退以避免资源加载失败时画布变空。
@@ -249,7 +349,7 @@ export class MainMenuScene {
   }
 
   /**
-   * 加载主菜单专用的正面莞小鹅贴图；失败时只关闭角色表现，不影响菜单可用性。
+   * 加载游戏内正式莞小鹅待机图集；失败时只关闭角色表现，不影响菜单可用性。
    * @returns {Promise<HTMLImageElement|null>}
    * @private
    */
@@ -261,15 +361,20 @@ export class MainMenuScene {
       return this.menuGooseLoadPromise;
     }
 
-    this.menuGooseLoadPromise = this.assetLoader.loadImage(MAIN_MENU_GOOSE_URL)
-      .then((image) => {
-        this.menuGooseImage = image;
-        return image;
-      })
+    const loadGooseAsset = (spec, label) => this.assetLoader.loadImage(spec.src)
       .catch((error) => {
-        console.warn('[鹅厂出逃记] 主菜单正面莞小鹅加载失败，隐藏角色表现:', error);
+        console.warn(`[鹅厂出逃记] 主菜单莞小鹅${label}图集加载失败:`, error);
         return null;
       });
+
+    this.menuGooseLoadPromise = Promise.all([
+      loadGooseAsset(MENU_GOOSE_IDLE_SPEC, '待机'),
+      loadGooseAsset(MENU_GOOSE_WALK_SPEC, '行走'),
+    ]).then(([idleImage, walkImage]) => {
+      this.menuGooseImage = idleImage;
+      this.menuGooseWalkImage = walkImage;
+      return idleImage;
+    });
 
     return this.menuGooseLoadPromise;
   }
@@ -353,17 +458,19 @@ export class MainMenuScene {
   }
 
   /**
-   * 绘制主菜单站位的莞小鹅，使用真实待机序列帧并保持朝向门外。
+   * 绘制主菜单站位的莞小鹅，直接裁切游戏内正式待机图集的当前帧。
    * @param {CanvasRenderingContext2D} ctx
    * @returns {boolean} 是否绘制成功
    * @private
    */
   _drawGoose(ctx) {
-    if (!this.menuGooseImage) return false;
+    const pose = this._getMenuGoosePose();
+    const image = pose.mode === 'walk' ? this.menuGooseWalkImage : this.menuGooseImage;
+    if (!image) return false;
 
-    const x = GAME.WIDTH * 0.31;
+    const x = pose.x;
     const y = GAME.HEIGHT * 0.9 + Math.sin(this.motionTime * 2.1) * 1.2;
-    const width = 128;
+    const width = 190;
     const height = 230;
 
     // 轻微接触阴影帮助角色落在工厂地面上，不增加额外 UI 感。
@@ -378,21 +485,24 @@ export class MainMenuScene {
     const headSway = Math.sin(this.motionTime * 1.8) * 0.045
       + Math.sin(this.motionTime * 3.1) * 0.012;
     const breathing = 1 + Math.sin(this.motionTime * 2.3) * 0.012;
-    const sourceWidth = this.menuGooseImage.naturalWidth || this.menuGooseImage.width;
-    const sourceHeight = this.menuGooseImage.naturalHeight || this.menuGooseImage.height;
+    const spec = pose.mode === 'walk' ? MENU_GOOSE_WALK_SPEC : MENU_GOOSE_IDLE_SPEC;
+    const animation = spec.config.animations[pose.mode];
+    const frameCount = Math.max(1, animation.frames || 1);
+    const frameIndex = Math.floor(this.motionTime * (animation.fps || 6)) % frameCount;
+    const frame = MENU_GOOSE_SHEETS[pose.mode].getFrame(pose.mode, frameIndex);
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(headSway);
-    ctx.scale(breathing, breathing);
+    ctx.scale(pose.flipX ? -breathing : breathing, breathing);
     ctx.drawImage(
-      this.menuGooseImage,
-      0,
-      0,
-      sourceWidth,
-      sourceHeight,
-      -width / 2,
-      -height,
+      image,
+      frame.x,
+      frame.y,
+      frame.w,
+      frame.h,
+      -width * frame.anchorX,
+      -height * frame.anchorY,
       width,
       height,
     );
@@ -401,12 +511,54 @@ export class MainMenuScene {
   }
 
   /**
-   * 绘制标题文字"鹅厂出逃记"及英文副标题
-   * 标题位于左上方的干净墙面区域，为门外道路与右下角按钮留出主视觉空间
-   * @param {CanvasRenderingContext2D} ctx
+   * 计算主菜单莞小鹅的短路径循环：从工厂门口走到出发位，停留后再走回去。
+   * 这样入口页有真实角色行为，同时不引入玩法输入或场景状态。
+   * @returns {{x: number, mode: 'idle'|'walk', flipX: boolean}}
    * @private
    */
+  _getMenuGoosePose() {
+    if (!this.menuGooseWalkImage) {
+      return { x: MENU_GOOSE_TARGET_X, mode: 'idle', flipX: false };
+    }
+
+    const cycleTime = this.motionTime % MENU_GOOSE_CYCLE_DURATION;
+    if (cycleTime < MENU_GOOSE_WALK_DURATION) {
+      const progress = cycleTime / MENU_GOOSE_WALK_DURATION;
+      const eased = progress * progress * (3 - (2 * progress));
+      return {
+        x: MENU_GOOSE_START_X + ((MENU_GOOSE_TARGET_X - MENU_GOOSE_START_X) * eased),
+        mode: 'walk',
+        flipX: false,
+      };
+    }
+
+    if (cycleTime < MENU_GOOSE_WALK_DURATION + MENU_GOOSE_IDLE_DURATION) {
+      return { x: MENU_GOOSE_TARGET_X, mode: 'idle', flipX: false };
+    }
+
+    if (cycleTime < (MENU_GOOSE_WALK_DURATION * 2) + MENU_GOOSE_IDLE_DURATION) {
+      const progress = (cycleTime - MENU_GOOSE_WALK_DURATION - MENU_GOOSE_IDLE_DURATION)
+        / MENU_GOOSE_WALK_DURATION;
+      const eased = progress * progress * (3 - (2 * progress));
+      return {
+        x: MENU_GOOSE_TARGET_X - ((MENU_GOOSE_TARGET_X - MENU_GOOSE_START_X) * eased),
+        mode: 'walk',
+        flipX: true,
+      };
+    }
+
+    return { x: MENU_GOOSE_START_X, mode: 'idle', flipX: true };
+  }
+
+  /** 绘制正式标题图；资源尚未完成加载时保留可读文字回退。 */
   _drawTitle(ctx) {
+    if (this.titleImage) {
+      const width = GAME.WIDTH * 0.4;
+      const height = width * (379 / 1440);
+      ctx.drawImage(this.titleImage, GAME.WIDTH * 0.06, GAME.HEIGHT * 0.055, width, height);
+      return;
+    }
+
     ctx.save();
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -425,6 +577,75 @@ export class MainMenuScene {
     ctx.fillText('GOOSE ESCAPE', GAME.WIDTH * 0.08 + 4, GAME.HEIGHT * 0.19 + 56);
 
     ctx.restore();
+  }
+
+  /** 注入主菜单正式材质样式，确保 normal/hover/pressed/disabled 与 Button 状态同步。 */
+  _ensureMainMenuStyles() {
+    const styleId = 'main-menu-formal-ui-styles';
+    if (document.getElementById(styleId)) return;
+
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      [data-main-menu-buttons] [data-main-menu-button] {
+        box-sizing: border-box;
+        width: 100%;
+        height: clamp(64px, 8.1vw, 118px);
+        min-width: 0;
+        min-height: 0;
+        padding: 0 clamp(10px, 1.8vw, 26px);
+        border: 0;
+        border-radius: 0;
+        background-color: transparent;
+        background-image: var(--menu-button-normal);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+        box-shadow: none;
+        color: #fff8e9;
+        font-size: clamp(12px, 1.5vw, 24px);
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        line-height: 1;
+        text-shadow: 0 2px 3px rgba(79, 35, 13, 0.92), 0 0 2px rgba(255, 243, 203, 0.55);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transform: none;
+      }
+      [data-main-menu-buttons] [data-main-menu-button]:hover:not(:disabled),
+      [data-main-menu-buttons] [data-main-menu-button][data-state="hover"] {
+        background-image: var(--menu-button-hover);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+        box-shadow: none;
+        transform: translateY(-1px);
+      }
+      [data-main-menu-buttons] [data-main-menu-button][data-state="pressed"],
+      [data-main-menu-buttons] [data-main-menu-button]:active:not(:disabled) {
+        background-image: var(--menu-button-click);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+        box-shadow: none;
+        filter: brightness(0.96);
+        transform: translateY(2px);
+      }
+      [data-main-menu-buttons] [data-main-menu-button]:disabled,
+      [data-main-menu-buttons] [data-main-menu-button][data-state="disabled"] {
+        background-image: var(--menu-button-normal);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+        box-shadow: none;
+        color: #c2b8a5;
+        filter: grayscale(0.85) brightness(0.72);
+        opacity: 0.78;
+        transform: none;
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   // ==================== 按钮事件处理 ====================
@@ -456,7 +677,21 @@ export class MainMenuScene {
     if (!saveData) return;
 
     this.transitioning = true;
-    this.sceneManager.change(saveData.chapter, { saveData });
+    const restore = saveData.checkpoint && typeof saveData.checkpoint === 'object'
+      ? saveData.checkpoint
+      : null;
+    this.sceneManager.change(saveData.chapter, { saveData, restore });
+  }
+
+  /**
+   * 点击"结尾回顾"：打开共享回顾面板；即使尚未通关也允许进入，以便查看收集进度或输入展示密码。
+   * @private
+   */
+  _onEndingReviewClick() {
+    if (this.activeOverlay || !this.endingReviewPanel) return;
+
+    this.activeOverlay = this.endingReviewPanel;
+    this.endingReviewPanel.show();
   }
 
   /**
@@ -593,6 +828,11 @@ export class MainMenuScene {
    */
   _startLoading() {
     this.transitioning = true;
+
+    // “开始新游戏”明确开启新 run：清掉当前自动存档，避免旧章节的精确快照
+    // 或 choice 被新序章错误继承。徽章收藏不在这里清除，仍属于玩家档案。
+    this.saveSystem.deleteSlot?.('slot1');
+    this.cachedSaveData = null;
 
     const content = this._buildLoadingContent();
     const overlay = new Overlay({

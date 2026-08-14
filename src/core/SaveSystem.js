@@ -134,7 +134,7 @@ export class SaveSystem {
   /**
    * 写入存档到指定槽位（内部方法）
    * 负责补充 version、timestamp 和可选的 choice 字段，序列化后交给 StorageService 持久化。
-   * choice 未传入时补充 null，保证存档结构一致且旧存档兼容。
+   * choice 未传入时保留旧存档中的选择；只有显式传入 null 才清除 choice，避免章节自动存档覆盖已锁定的分支。
    * @param {string} slot - 槽位标识
    * @param {Object} data - 原始存档数据
    * @private
@@ -143,10 +143,14 @@ export class SaveSystem {
     const config = this._getSlotConfig(slot);
     if (!config) return;
 
+    const existing = this._readSlot(slot);
+    const hasChoice = Object.prototype.hasOwnProperty.call(data, 'choice')
+      && data.choice !== undefined;
+
     const saveData = {
       ...data,
-      // choice 作为可选字段，未传入时补充 null，保证旧存档结构一致
-      choice: data.choice ?? null,
+      // choice 作为可选字段；新存档没有旧值时补充 null，保证结构一致
+      choice: hasChoice ? data.choice : (existing?.choice ?? null),
       version: this.version,
       timestamp: Date.now(),
     };

@@ -161,6 +161,11 @@ describe('ParticleSystem', () => {
     expect(PARTICLE_PRESETS).toHaveProperty('flash');
   });
 
+  it('sparkle 只保留少量外围碎光，正式图集承担主效果', () => {
+    expect(PARTICLE_PRESETS.sparkle.count).toBeLessThanOrEqual(6);
+    expect(PARTICLE_PRESETS.sparkle.size).toBeLessThanOrEqual(3);
+  });
+
   it('每个预设包含 count/speed/life/size/color 必要字段', () => {
     for (const [name, preset] of Object.entries(PARTICLE_PRESETS)) {
       expect(preset).toHaveProperty('count');

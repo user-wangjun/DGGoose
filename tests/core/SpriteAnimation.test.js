@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpriteSheet, SpriteAnimation } from '../../src/core/SpriteAnimation.js';
+import idleConfig from '../../assets/characters/gxe/gxe_idle.json';
+import walkConfig from '../../assets/characters/gxe/gxe_walk.json';
+import runConfig from '../../assets/characters/gxe/gxe_run.json';
+import { GXE_SPRITE_SPECS } from '../../src/core/GooseSprite.js';
 
 /**
  * SpriteAnimation + SpriteSheet 测试套件
@@ -77,6 +81,59 @@ describe('SpriteSheet 图集', () => {
     expect(sheet.getFrame('walk', 3)).toMatchObject({ x: 768, y: 0 });
     expect(sheet.getFrame('walk', 4)).toMatchObject({ x: 0, y: 256 });
     expect(sheet.getFrame('walk', 15)).toMatchObject({ x: 768, y: 768 });
+  });
+
+  it('支持逐帧锚点，避免图集中角色内容漂移', () => {
+    const sheet = new SpriteSheet({
+      atlas: { frameW: 256, frameH: 256, columns: 2, rows: 1 },
+      animations: {
+        walk: {
+          row: 0,
+          frames: 2,
+          columns: 2,
+          fps: 8,
+          loop: true,
+          anchorX: 0.5,
+          anchorY: 0.9,
+          frameAnchors: [
+            { x: 0.4, y: 0.8 },
+            { x: 0.6, y: 0.95 },
+          ],
+        },
+      },
+    });
+
+    expect(sheet.getFrame('walk', 0)).toMatchObject({ anchorX: 0.4, anchorY: 0.8 });
+    expect(sheet.getFrame('walk', 1)).toMatchObject({ anchorX: 0.6, anchorY: 0.95 });
+  });
+
+  it('核心莞小鹅图集为每一帧提供统一落脚点锚点', () => {
+    const configs = [
+      [idleConfig, 'idle', 8],
+      [walkConfig, 'walk', 16],
+      [runConfig, 'run', 16],
+    ];
+
+    for (const [config, name, frameCount] of configs) {
+      const animation = config.animations[name];
+      expect(animation.frameAnchors).toHaveLength(frameCount);
+      expect(animation.frameAnchors.every(({ x, y }) => (
+        Number.isFinite(x)
+        && Number.isFinite(y)
+        && x >= 0
+        && x <= 1
+        && y >= 0
+        && y <= 1
+      ))).toBe(true);
+    }
+  });
+
+  it('运行时奔跑状态使用真实双足交替的 walk atlas，并提高播放速度', () => {
+    const run = GXE_SPRITE_SPECS.run;
+    expect(run.src).toContain('gxe_walk_sheet');
+    expect(run.config.animations.run.frames).toBe(16);
+    expect(run.config.animations.run.fps).toBe(runConfig.animations.run.fps);
+    expect(run.config.animations.run.frameAnchors).toEqual(walkConfig.animations.walk.frameAnchors);
   });
 });
 

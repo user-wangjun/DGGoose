@@ -68,6 +68,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsInlineLimit: 0,
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        intro: path.resolve(__dirname, 'ai-city-ip-intro.html'),
+      },
+    },
   },
   test: {
     environment: 'jsdom',

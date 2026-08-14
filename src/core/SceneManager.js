@@ -9,14 +9,25 @@ export class SceneManager {
   /**
    * @param {Object} [options] - 初始化选项
    * @param {EventBus} [options.eventBus] - 事件总线（可选，用于广播场景切换事件）
+   * @param {Object} [options.transition] - 可选的场景转场叠加层
    */
-  constructor({ eventBus } = {}) {
+  constructor({ eventBus, transition = null } = {}) {
     this.scenes = new Map();
     this.current = null;
     this.currentName = null;
     this.history = [];
     /** @type {EventBus|null} 事件总线引用 */
     this.eventBus = eventBus || null;
+    /** @type {Object|null} 地图转场叠加层 */
+    this.transition = transition;
+    /** @type {boolean} 新印记展示期间，暂停提交下一场景 */
+    this.badgeGateActive = false;
+    /** @type {{type:'change'|'back', name?:string, params?:*}|null} 待印记确认的场景操作 */
+    this.pendingSceneChange = null;
+    this._onBadgeGet = this._onBadgeGet.bind(this);
+    if (this.eventBus) {
+      this.eventBus.on(EVENT.BADGE_GET, this._onBadgeGet);
+    }
   }
 
   /**
@@ -47,6 +58,20 @@ export class SceneManager {
   }
 
   /**
+   * 捕获当前场景的可持久化状态。没有实现快照的菜单/旧场景返回 null，
+   * 由入口层决定是否只保存章节完成兼容字段。
+   * @returns {{scene:string,state:Object}|null}
+   */
+  captureCurrentState() {
+    if (!this.current || !this.currentName || typeof this.current.getSaveState !== 'function') {
+      return null;
+    }
+    const state = this.current.getSaveState();
+    if (!state || typeof state !== 'object') return null;
+    return { scene: this.currentName, state };
+  }
+
+  /**
    * 切换场景，执行 旧场景.onExit → 新场景.onEnter 生命周期
    * @param {string} name - 目标场景名
    * @param {*} [params] - 传给 onEnter 的参数
@@ -57,7 +82,49 @@ export class SceneManager {
       throw new Error(`场景未注册: ${name}`);
     }
 
+    if (this.badgeGateActive) {
+      this.pendingSceneChange = { type: 'change', name, params };
+      return false;
+    }
+
+    return this._commitChange(name, params);
+  }
+
+  /**
+   * 确认已获得的印记，并提交之前被挂起的场景操作。
+   * 由印记展示层在玩家按空格后调用。
+   * @returns {boolean} 是否消费了一次印记确认
+   */
+  confirmBadge() {
+    if (!this.badgeGateActive) return false;
+
+    this.badgeGateActive = false;
+    const pending = this.pendingSceneChange;
+    this.pendingSceneChange = null;
+    if (!pending) return true;
+
+    if (pending.type === 'back') {
+      return this._commitBack(pending.params);
+    }
+    return this._commitChange(pending.name, pending.params);
+  }
+
+  /** @private */
+  _onBadgeGet(data) {
+    if (!data?.badge) return;
+    this.badgeGateActive = true;
+    this.pendingSceneChange = null;
+  }
+
+  /** @private */
+  _commitChange(name, params) {
+    const scene = this.scenes.get(name);
+    if (!scene) {
+      throw new Error(`场景未注册: ${name}`);
+    }
+
     // 先退出当前场景（如果有），并压入历史栈
+    const previousName = this.currentName;
     if (this.current && this.currentName) {
       if (this.current.onExit) {
         this.current.onExit();
@@ -72,10 +139,13 @@ export class SceneManager {
       scene.onEnter(params);
     }
 
+    this._startTransition(previousName, name, params);
+
     // 广播场景切换事件（供音频路由、预加载等订阅）
     if (this.eventBus) {
       this.eventBus.emit(EVENT.SCENE_CHANGE, { name });
     }
+    return true;
   }
 
   /**
@@ -88,7 +158,22 @@ export class SceneManager {
       return false;
     }
 
+    if (this.badgeGateActive) {
+      this.pendingSceneChange = { type: 'back', params };
+      return true;
+    }
+
+    return this._commitBack(params);
+  }
+
+  /** @private */
+  _commitBack(params) {
+    if (this.history.length === 0) {
+      return false;
+    }
+
     const prevName = this.history.pop();
+    const previousName = this.currentName;
     if (this.current && this.current.onExit) {
       this.current.onExit();
     }
@@ -99,6 +184,7 @@ export class SceneManager {
     if (prevScene && prevScene.onEnter) {
       prevScene.onEnter(params);
     }
+    this._startTransition(previousName, prevName, params);
     return true;
   }
 
@@ -110,6 +196,9 @@ export class SceneManager {
     if (this.current && this.current.update) {
       this.current.update(deltaTime);
     }
+    if (this.transition && this.transition.update) {
+      this.transition.update(deltaTime);
+    }
   }
 
   /**
@@ -120,5 +209,20 @@ export class SceneManager {
     if (this.current && this.current.draw) {
       this.current.draw(ctx);
     }
+    if (this.transition && this.transition.draw) {
+      this.transition.draw(ctx);
+    }
+  }
+
+  /**
+   * 启动完整地图转场；初始化场景或没有目标转场时保持原行为。
+   * @param {string|null} fromName
+   * @param {string} toName
+   * @param {*} params
+   * @private
+   */
+  _startTransition(fromName, toName, params) {
+    if (!this.transition || !fromName) return;
+    this.transition.start({ fromName, toName, params });
   }
 }

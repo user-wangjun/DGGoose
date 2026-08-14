@@ -86,10 +86,56 @@ describe('FactoryPhysics 鹅厂侧视物理约束', () => {
     expect(physics.x + 30).toBeLessThanOrEqual(1080);
   });
 
+  it('翻墙完成后解除墙前边界，并允许角色继续跑到右侧出口', () => {
+    physics = new FactoryPhysics({
+      groundY: 508,
+      leftBound: 420,
+      wallX: 1042,
+      wallRight: 1094,
+      worldWidth: 1280,
+      playerRadius: 30,
+    });
+    physics.setPosition(1012, 508);
+    physics.update(1, rightInput);
+
+    expect(physics.x).toBe(1012);
+    expect(physics.wallCleared).toBe(false);
+
+    physics.clearWall({ x: 1126, y: 508 });
+    expect(physics.wallCleared).toBe(true);
+    expect(physics.x).toBe(1126);
+
+    physics.update(0.3, rightInput);
+
+    expect(physics.x).toBeGreaterThan(1126);
+    expect(physics.x).toBeLessThanOrEqual(1250);
+    expect(physics.y).toBe(508);
+  });
+
   it('角色不能越过左侧场景边界', () => {
     physics.setPosition(80, 540);
     physics.update(1, leftInput);
 
     expect(physics.x).toBe(60);
+  });
+
+  it('保存并恢复翻墙物理状态与空中运动状态', () => {
+    physics.update(0.016, jumpInput);
+    physics.clearWall({ x: 1126, y: 540 });
+    physics.update(0.08, idleInput);
+
+    const snapshot = physics.getSaveState();
+    const restored = new FactoryPhysics({
+      groundY: 540,
+      leftBound: 60,
+      wallX: 1080,
+      playerRadius: 30,
+      gravity: 1500,
+      jumpVelocity: -500,
+    });
+
+    restored.restoreSaveState(snapshot);
+
+    expect(restored.getSaveState()).toEqual(snapshot);
   });
 });

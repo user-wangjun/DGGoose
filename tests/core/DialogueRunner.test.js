@@ -242,4 +242,22 @@ describe('DialogueRunner', () => {
       vi.useRealTimers();
     });
   });
+  describe('save state - 对话恢复快照', () => {
+    it('保存并恢复逐字游标与当前行', () => {
+      const lines = [
+        { who: '莞小鹅', txt: '第一行文字', tags: ['idle'] },
+        { who: '教练', txt: '第二行文字', tags: ['coach'] },
+      ];
+      runner.start(lines);
+      runner.update(0.2);
+
+      const snapshot = runner.getSaveState();
+      const restored = new DialogueRunner({ eventBus: new EventBus(), textSpeed: 20 });
+      restored.restoreSaveState(snapshot);
+
+      expect(restored.getSaveState()).toEqual(snapshot);
+      expect(restored.getCurrent()).toEqual(runner.getCurrent());
+    });
+  });
+
 });

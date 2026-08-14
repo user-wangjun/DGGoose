@@ -58,6 +58,39 @@ export class BadgeSystem {
   }
 
   /**
+   * 重新展示已经获得的印记，不重复计数或写入。
+   * 用于玩家重玩场景时再次确认已有印记，避免旧存档让展示流程无反馈。
+   * @param {string} id - 印记 id
+   * @returns {boolean} 成功广播展示事件返回 true
+   */
+  reveal(id) {
+    const badge = this._findBadge(id);
+    if (!badge || !this.isUnlocked(id)) {
+      return false;
+    }
+
+    this.eventBus.emit(EVENT.BADGE_GET, { badge, replay: true });
+    return true;
+  }
+
+  /**
+   * 场景完成时统一处理印记：首次完成写入并展示，重玩时重新展示但不重复计数。
+   * @param {string} id - 印记 id
+   * @returns {boolean} 印记有效且已完成解锁或重展示时返回 true
+   */
+  unlockOrReveal(id) {
+    if (!this._findBadge(id)) {
+      return false;
+    }
+
+    if (this.unlock(id)) {
+      return true;
+    }
+
+    return this.reveal(id);
+  }
+
+  /**
    * 检查印记是否已解锁
    * @param {string} id - 印记 id
    * @returns {boolean}

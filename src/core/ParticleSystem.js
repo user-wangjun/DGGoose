@@ -29,10 +29,11 @@ export const PARTICLE_PRESETS = {
   },
   /** 进球光效：金色粒子径向爆发，无重力，快速消散 */
   sparkle: {
-    count: 14,
-    speed: 180,
+    // 正式三帧图集承担主视觉；这里只保留少量外围碎光，避免双重爆炸感。
+    count: 6,
+    speed: 150,
     life: 0.6,
-    size: 4,
+    size: 2.5,
     color: '#fbbf24',
     gravity: 0,
     friction: 0.94,

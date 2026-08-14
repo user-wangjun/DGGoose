@@ -66,6 +66,17 @@ describe('ChapterMap 章节地图', () => {
       const nodes = container.querySelectorAll('[data-chapter-node]');
       expect(nodes.length).toBe(7);
     });
+
+    it('章节信息卡使用对应的正式徽章图进行核验', () => {
+      badgeSystem.unlock('factory_cert');
+      createMap();
+      chapterMap.setState(['prologue'], ['prologue'], []);
+      chapterMap.selectNode('prologue');
+
+      const image = container.querySelector('[data-chapter-badge-image="factory_cert"]');
+      expect(image).not.toBeNull();
+      expect(image.src).toContain('badge_factory_color.png');
+    });
   });
 
   describe('抉择状态展示', () => {

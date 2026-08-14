@@ -234,6 +234,12 @@ describe('对话数据', () => {
     }
   });
 
+  it('ch3 收尾评价偷盗逃跑表现，不应声称莞小鹅已经会做烧鹅', () => {
+    const choiceLine = DIALOGUES.ch3.find((line) => line.event === 'choice:start');
+    expect(choiceLine?.txt).toContain('胆子不小，跑得也挺快');
+    expect(choiceLine?.txt).not.toContain('手艺不错');
+  });
+
   // M5: finale 必须包含走马灯结算事件
   it('finale 对话包含 choice:resolve 结算事件', () => {
     const hasResolve = DIALOGUES.finale.some((line) => line.event === 'choice:resolve');

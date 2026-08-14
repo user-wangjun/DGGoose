@@ -1,51 +1,40 @@
 import { GAME, EVENT } from '../config.js';
 import { DIALOGUES } from '../data/dialogues.js';
+import { TopdownController } from '../core/TopdownController.js';
+import { drawSceneObjects, loadSceneObjectAssets } from '../core/SceneObjectRenderer.js';
+import { SCENE_OBJECT_ASSETS } from '../data/sceneObjectAssets.js';
+import { sortBySortY } from '../core/SceneLayout.js';
 import { Toast } from '../ui/Toast.js';
 import { ChoiceOverlay } from '../ui/ChoiceOverlay.js';
 
-/** 正确点触序列（0 基索引），对应 1 基序列 3→1→4→2 */
-const CORRECT_SEQUENCE = [2, 0, 3, 1];
+/** 保留原有谜题答案：玩家需要按 3→1→4→2 摘取。 */
+export const LYCHEE_SEQUENCE = [3, 1, 4, 2];
 
-/** 栅栏门动画时长（秒） */
-const GATE_OPEN_DURATION = 1.0;
-
-/** 错误晃动动画时长（秒） */
-const SHAKE_DURATION = 0.5;
-
-/** 树热区尺寸（像素），满足 ≥44px 拇指触控要求 */
-const HOT_ZONE_SIZE = 80;
+const LYCHEE_BACKGROUND_URL = new URL('../../assets/bg/scene-02-lychee-orchard/scene-02-map.png', import.meta.url).href;
+// 原底图包含关门；开门状态切到仅清理出口区域的对应底图，避免与透明开门贴图叠出第二扇门。
+const LYCHEE_OPEN_BACKGROUND_URL = new URL('../../assets/bg/scene-02-lychee-orchard/scene-02-map-open.png', import.meta.url).href;
+const GATE_OPEN_DURATION = 1;
+const HARVEST_FEEDBACK_DURATION = 0.45;
+const PLAYER_START = { x: 150, y: 610 };
+// 碰撞只取鹅的脚底 footprint，避免点击移动时在树干下角被卡住。
+const PLAYER_RADIUS = 16;
+const GATE = { x: 1110, y: 112, width: 136, height: 96 };
+const EXIT = { x: 1188, y: 158, radius: 82 };
+const SIGN = { x: 152, y: 316, radius: 68 };
+const GRANDMA = { x: 220, y: 396, radius: 88 };
+const WORK_AREA = { x: 22, y: 142, width: 188, height: 172 };
 
 /**
- * 荔枝树数据：5 棵树均匀分布在画布中部，编号 1-5
- * x/y 为树冠中心的逻辑坐标，label 为指示牌上的编号
+ * 五棵树使用正式地图坐标，互动点和树干碰撞分离，玩家可以绕树移动。
  */
-const TREE_DATA = [
-  { x: 220, y: 380, label: '1' },
-  { x: 420, y: 420, label: '2' },
-  { x: 620, y: 380, label: '3' },
-  { x: 820, y: 420, label: '4' },
-  { x: 1020, y: 380, label: '5' },
+export const LYCHEE_TREES = [
+  { id: 'tree-1', label: '1', x: 300, y: 188, visual: { x: 300, y: 248, width: 190, height: 210, anchorY: 0.98, bakedIn: true }, solidFootprint: { x: 277, y: 196, width: 46, height: 52 }, interaction: { x: 300, y: 188, radius: 96 } },
+  { id: 'tree-2', label: '2', x: 586, y: 492, visual: { x: 586, y: 552, width: 190, height: 210, anchorY: 0.98, bakedIn: true }, solidFootprint: { x: 563, y: 500, width: 46, height: 52 }, interaction: { x: 586, y: 492, radius: 96 } },
+  { id: 'tree-3', label: '3', x: 650, y: 188, visual: { x: 650, y: 248, width: 190, height: 210, anchorY: 0.98, bakedIn: true }, solidFootprint: { x: 627, y: 196, width: 46, height: 52 }, interaction: { x: 650, y: 188, radius: 96 } },
+  { id: 'tree-4', label: '4', x: 964, y: 492, visual: { x: 964, y: 552, width: 190, height: 210, anchorY: 0.98, bakedIn: true }, solidFootprint: { x: 941, y: 500, width: 46, height: 52 }, interaction: { x: 964, y: 492, radius: 96 } },
+  { id: 'tree-5', label: '5', x: 970, y: 188, visual: { x: 970, y: 248, width: 190, height: 210, anchorY: 0.98, bakedIn: true }, solidFootprint: { x: 947, y: 196, width: 46, height: 52 }, interaction: { x: 970, y: 188, radius: 96 } },
 ];
 
-/** 栅栏门初始位置（画布右侧） */
-const GATE_X = 1140;
-const GATE_Y = 340;
-
-/** 指示牌位置（画布左下角） */
-const SIGN_X = 100;
-const SIGN_Y = 520;
-
-/** 玩家初始位置（场景入口） */
-const PLAYER_START_X = 120;
-const PLAYER_START_Y = 560;
-
-/** 资源尚未完成加载时的兼容性占位尺寸；正常绘制使用 GooseSprite */
-const PLAYER_SIZE = 48;
-
-/**
- * 抉择点配置（对应剧情分支设计 v4 §3 伞形多结局）
- * 解谜完成后弹出，玩家可选"留下种荔枝"进入荔枝传人结局分支，或继续探寻。
- */
 const CHOICE_CONFIG = {
   sceneId: 'ch2',
   nextChapter: 'ch3',
@@ -55,35 +44,11 @@ const CHOICE_CONFIG = {
 };
 
 /**
- * 第二章场景 · 荔枝园序列解谜（对应 PRD §5 F7 + 计划 Task 3.4）
- *
- * 职责分工：
- * - Canvas 层：绘制荔枝园背景（绿色调）、5 棵荔枝树、栅栏门、指示牌、莞小鹅核心序列帧
- * - DOM 层：树的热区点击区域（≥44px 适配拇指）
- *
- * 解谜流程：
- * 1. 进入 → 播放对话 ch2 前 4 行（含 puzzle:start）
- * 2. 对话结束 → 显示 5 棵树和指示牌，玩家开始点触
- * 3. 正确 → 锁定高亮该树，推进到下一步
- * 4. 错误 → 全部重置 + 晃动 + Toast 提示
- * 5. 四步全对 → 栅栏门动画
- * 6. 门开 → 播放对话 ch2 后 4 行（含 puzzle:solved、badge:unlock、chapter:next）
- * 7. 对话结束 → 发放印记 lychee → 切换到第三章
+ * 第二章·荔枝园。
+ * 先与老婆婆交谈，再在同一张俯视果园中自由移动、主动摘取并回去交付。
  */
 export class LycheeScene {
-  /**
-   * @param {Object} deps - 依赖注入
-   * @param {SceneManager} deps.sceneManager - 场景管理器
-   * @param {EventBus} deps.eventBus - 事件总线
-   * @param {BadgeSystem} deps.badgeSystem - 印记系统
-   * @param {DialogueRunner} deps.dialogueRunner - 对话运行器
-   * @param {DialogueBox} deps.dialogueBox - 对话框 UI
-   * @param {InputManager} deps.input - 输入管理器
-   * @param {PlayerController} deps.player - 角色控制器
-   * @param {HTMLElement} deps.container - UI 挂载容器
-   * @param {import('../core/GooseSprite.js').GooseSprite} [deps.gooseSprite] - 莞小鹅序列帧绘制器
-   */
-  constructor({ sceneManager, eventBus, badgeSystem, dialogueRunner, dialogueBox, input, player, container, getChoice, gooseSprite }) {
+  constructor({ sceneManager, eventBus, badgeSystem, dialogueRunner, dialogueBox, input, player, container, assetLoader = null, getChoice, gooseSprite, farmerSprite = null }) {
     this.sceneManager = sceneManager;
     this.eventBus = eventBus;
     this.badgeSystem = badgeSystem;
@@ -92,634 +57,533 @@ export class LycheeScene {
     this.input = input;
     this.player = player;
     this.container = container;
+    this.assetLoader = assetLoader;
     this.gooseSprite = gooseSprite || null;
-    /** 读取已记录抉择的回调（用于判断"留下"按钮是否置灰，伞形多结局仅允许一次留下） */
+    this.farmerSprite = farmerSprite;
     this.getChoice = getChoice || (() => null);
 
-    /** 当前阶段：idle / intro / puzzle / gate_opening / outro / done */
     this.phase = 'idle';
-    /** 当前解谜步数（0-3），对应 CORRECT_SEQUENCE 的索引 */
-    this.puzzleStep = 0;
-    /** 栅栏门动画进度（0~1） */
+    this.harvested = new Set();
+    this.harvestStep = 0;
     this.gateProgress = 0;
-    /** 错误晃动剩余时间（秒），大于 0 时树晃动 */
-    this.shakeTime = 0;
-    /** 传送带动画累计时间（秒），用于环境装饰 */
+    this.exitOpen = false;
     this.animTime = 0;
-    /** 标记是否已触发场景切换 */
+    this.feedbackTimer = 0;
     this.transitioning = false;
-
-    /** 树状态列表：每棵树的状态（normal / locked / shaking） */
-    this.treeStates = [];
-    /** DOM 根容器（树热区层） */
-    this.domRoot = null;
-    /** 树热区 DOM 元素列表 */
-    this.treeHotZones = [];
-    /** Toast 实例（错误提示用） */
+    this.feedbackTimerId = null;
     this.toast = null;
-    /** 抉择覆盖层实例（发放印记后弹出） */
     this.choiceOverlay = null;
+    this.topdown = null;
+    this.backgroundImage = null;
+    this.openBackgroundImage = null;
+    this.backgroundPromise = null;
+    this.objectImages = new Map();
+    this.objectAssetsPromise = null;
 
-    // 绑定回调
     this._onDialogueNext = this._onDialogueNext.bind(this);
-    this._resizeHandler = this._resizeHandler.bind(this);
     this._onChoiceStay = this._onChoiceStay.bind(this);
     this._onChoiceContinue = this._onChoiceContinue.bind(this);
+    this._onInteract = this._onInteract.bind(this);
   }
 
-  // ==================== 场景生命周期 ====================
-
-  /**
-   * 场景进入：初始化状态、构建 DOM 热区、注册事件、开始对话
-   */
-  onEnter() {
+  /** 初始化地图、共享交互控制器和开场对话。 */
+  onEnter(params = {}) {
     this.phase = 'intro';
-    this.puzzleStep = 0;
+    this.harvested = new Set();
+    this.harvestStep = 0;
     this.gateProgress = 0;
-    this.shakeTime = 0;
+    this.exitOpen = false;
     this.animTime = 0;
+    this.feedbackTimer = 0;
     this.transitioning = false;
+    this.feedbackTimerId = null;
 
-    // 初始化所有树为正常状态
-    this.treeStates = TREE_DATA.map(() => 'normal');
+    this.player.setPosition(PLAYER_START.x, PLAYER_START.y);
+    this._loadBackground();
+    this._loadSceneObjects();
+    this.toast = new Toast({ container: this.container, duration: 2200 });
+    this.topdown = new TopdownController({
+      player: this.player,
+      input: this.input,
+      container: this.container,
+      onInteract: this._onInteract,
+      title: '第二章 · 荔枝园',
+      objective: '先与老婆婆交谈，听取摘荔枝要求',
+    });
+    this.topdown.setMap({
+      bounds: { left: 38, top: 92, right: 1242, bottom: 672 },
+      obstacles: this._getObstacles(),
+      interactables: this._getInteractables(),
+      playerRadius: PLAYER_RADIUS,
+    });
+    this.topdown.mount();
+    this.topdown.setProgress('荔枝 0 / 4');
+    this.topdown.setExitStatus('出口：栅栏关闭');
+    this.topdown.setMovementLocked(true);
+    this.topdown.setInteractionEnabled(false);
 
-    // 设置玩家位置（场景入口）
-    this.player.setPosition(PLAYER_START_X, PLAYER_START_Y);
-
-    // 创建 Toast（错误提示用）
-    this.toast = new Toast({ container: this.container, duration: 2000 });
-
-    // 构建 DOM 热区层
-    this._buildDom();
-
-    // 注册对话结束事件
     this.eventBus.on(EVENT.DIALOGUE_NEXT, this._onDialogueNext);
-    // 监听抉择事件，玩家点击"留下"/"继续"后推进流程
     this.eventBus.on(EVENT.CHOICE_STAY, this._onChoiceStay);
     this.eventBus.on(EVENT.CHOICE_CONTINUE, this._onChoiceContinue);
-    // 窗口尺寸变化时重新定位热区
-    window.addEventListener('resize', this._resizeHandler);
-
-    // 播放 ch2 前 4 行对话
+    this.farmerSprite?.playAction('interact', { facing: 1, restart: true });
     this.dialogueBox.show(DIALOGUES.ch2.slice(0, 4));
+    if (params?.restore) this._restoreSaveState(params.restore);
   }
 
-  /**
-   * 每帧更新：推进对话、栅栏门动画、晃动计时
-   * @param {number} deltaTime - 帧间隔（秒）
-   */
+  /** 返回果园解谜、开门动画、角色位置和当前对话的完整快照。 */
+  getSaveState() {
+    return {
+      phase: this.phase,
+      harvested: [...this.harvested],
+      harvestStep: this.harvestStep,
+      gateProgress: this.gateProgress,
+      exitOpen: this.exitOpen,
+      feedbackTimer: this.feedbackTimer,
+      transitioning: this.transitioning,
+      player: this.player?.getSaveState?.() || this.player?.position || null,
+      topdown: this.topdown?.getSaveState?.() || null,
+      dialogue: this.dialogueBox?.getSaveState?.() || null,
+    };
+  }
+
+  /** 恢复果园阶段；摘取反馈的剩余时间从快照继续倒计时。 */
+  _restoreSaveState(state) {
+    if (!state || typeof state !== 'object') return;
+    this.phase = typeof state.phase === 'string' ? state.phase : 'intro';
+    this.harvested = new Set(Array.isArray(state.harvested) ? state.harvested : []);
+    this.harvestStep = Number.isInteger(state.harvestStep) ? Math.max(0, state.harvestStep) : this.harvested.size;
+    this.gateProgress = Number.isFinite(state.gateProgress) ? Math.max(0, Math.min(1, state.gateProgress)) : 0;
+    this.exitOpen = Boolean(state.exitOpen);
+    this.feedbackTimer = Number.isFinite(state.feedbackTimer) ? Math.max(0, state.feedbackTimer) : 0;
+    this.transitioning = Boolean(state.transitioning);
+
+    this.player?.restoreSaveState?.(state.player);
+    if (state.player && !this.player?.restoreSaveState) {
+      this.player?.setPosition?.(state.player.x, state.player.y);
+    }
+
+    this.topdown?.setMap({
+      obstacles: this._getObstacles(),
+      interactables: this._getInteractables(),
+    });
+    this._syncRestoredPhase();
+    if (state.topdown) this.topdown?.restoreSaveState?.(state.topdown);
+
+    if (this.phase === 'harvesting' && this.feedbackTimer > 0) {
+      this.feedbackTimerId = setTimeout(() => {
+        this.feedbackTimerId = null;
+        this._finishHarvestFeedback();
+      }, this.feedbackTimer * 1000);
+    }
+    if (this.phase === 'choice') this._showChoice();
+    if (state.dialogue) {
+      this.dialogueBox?.restoreSaveState?.(state.dialogue);
+    } else {
+      this.dialogueBox?.hide?.();
+    }
+  }
+
+  /** 根据保存的阶段恢复任务 HUD 和可移动/互动开关。 */
+  _syncRestoredPhase() {
+    if (!this.topdown) return;
+    this.topdown.setSceneInfo('第二章 · 荔枝园', '按顺序找到目标树，靠近后主动摘取');
+    this.topdown.setProgress(`荔枝 ${this.harvested.size} / 4`);
+    this.topdown.setExitStatus(this.exitOpen ? '出口：已打开' : '出口：栅栏关闭');
+    const canMove = ['explore', 'deliveryReady', 'exitReady'].includes(this.phase);
+    this.topdown.setMovementLocked(!canMove);
+    this.topdown.setInteractionEnabled(canMove);
+    if (this.phase === 'deliveryReady') {
+      this.topdown.setSceneInfo('第二章 · 荔枝园', '集齐荔枝，回到老婆婆处主动交付');
+      this.topdown.setProgress('荔枝 4 / 4 · 请交给老婆婆');
+    } else if (this.phase === 'exitReady') {
+      this.topdown.setSceneInfo('第二章 · 荔枝园', '栅栏已打开，走到右侧出口继续前行');
+      this.topdown.setProgress('荔枝 4 / 4 · 已交付');
+    } else if (this.phase === 'harvesting') {
+      this.topdown.setMovementLocked(true);
+      this.topdown.setProgress(`荔枝 ${this.harvested.size} / 4 · 正在摘取`);
+    } else if (this.phase === 'gateOpening') {
+      this.topdown.setMovementLocked(true);
+      this.topdown.setProgress('荔枝 4 / 4 · 栅栏开启中');
+    }
+  }
+
+  /** 推进对话、摘取反馈和栅栏开启动画。 */
   update(deltaTime) {
-    // 始终推进对话框逐字显示
+    this.animTime += deltaTime;
     this.dialogueBox.update(deltaTime);
+
+    if (this.topdown && ['explore', 'deliveryReady', 'exitReady'].includes(this.phase)) {
+      this.topdown.update(deltaTime);
+    }
     if (this.gooseSprite) {
       this.gooseSprite.update(deltaTime, this.player.animState, this.player.facing);
     }
-    this.animTime += deltaTime;
+    this.farmerSprite?.update(deltaTime, 'idle', 1);
 
-    // 栅栏门开启动画
-    if (this.phase === 'gate_opening') {
-      this.gateProgress += deltaTime / GATE_OPEN_DURATION;
-      if (this.gateProgress >= 1) {
-        this.gateProgress = 1;
-        this._onGateOpenComplete();
-      }
+    if (this.feedbackTimer > 0) {
+      this.feedbackTimer = Math.max(0, this.feedbackTimer - deltaTime);
     }
-
-    // 错误晃动计时
-    if (this.shakeTime > 0) {
-      this.shakeTime -= deltaTime;
-      if (this.shakeTime <= 0) {
-        this.shakeTime = 0;
-        // 晃动结束后恢复所有树为正常状态
-        this.treeStates = this.treeStates.map(() => 'normal');
-      }
+    if (this.phase === 'gateOpening') {
+      this.gateProgress = Math.min(1, this.gateProgress + deltaTime / GATE_OPEN_DURATION);
+      if (this.gateProgress >= 1) this._onGateOpened();
     }
   }
 
-  /**
-   * Canvas 渲染：荔枝园背景 + 树木 + 栅栏门 + 指示牌 + 角色
-   * @param {CanvasRenderingContext2D} ctx
-   */
+  /** 绘制正式果园背景，动态角色与互动标记仍由运行时单独叠加。 */
   draw(ctx) {
     if (!ctx) return;
-    this._drawBackground(ctx);
-    this._drawSign(ctx);
-    this._drawTrees(ctx);
-    this._drawGate(ctx);
-    this._drawPlayer(ctx);
+    this._drawMap(ctx);
+    this._drawSceneObjects(ctx);
+    const actors = sortBySortY([
+      this.farmerSprite ? { sortY: GRANDMA.y, draw: () => this._drawFarmer(ctx) } : null,
+      // DialogueBox 的莞小鹅立绘已承担角色表现；对话关闭后下一帧立即恢复场内角色。
+      !this.dialogueBox?.visible && this.topdown?.player
+        ? { sortY: this.topdown.player.y, draw: () => this.topdown.drawPlayer(ctx, this.gooseSprite) }
+        : null,
+    ].filter(Boolean));
+    actors.forEach((actor) => actor.draw());
+    // 互动标签是 UI 覆盖层，最后绘制，不改变树木/玩家的遮挡关系。
+    this.topdown?.drawInteractables(ctx, this.animTime);
+    if (this.feedbackTimer > 0) this._drawFeedback(ctx);
+    this.topdown?.drawDebug(ctx, {
+      spawn: PLAYER_START,
+      exits: [{ id: 'exit', ...EXIT }],
+    });
   }
 
-  /**
-   * 场景退出：移除事件监听、销毁 DOM、清理 Toast
-   */
+  /** 清理共享控制器、事件、Toast 和剧情覆盖层。 */
   onExit() {
     this.eventBus.off(EVENT.DIALOGUE_NEXT, this._onDialogueNext);
     this.eventBus.off(EVENT.CHOICE_STAY, this._onChoiceStay);
     this.eventBus.off(EVENT.CHOICE_CONTINUE, this._onChoiceContinue);
-    window.removeEventListener('resize', this._resizeHandler);
-
-    if (this.toast) {
-      this.toast.destroy();
-      this.toast = null;
-    }
-
-    this._destroyDom();
-
-    // 移除抉择覆盖层
+    if (this.feedbackTimerId) clearTimeout(this.feedbackTimerId);
+    this.feedbackTimerId = null;
+    this.topdown?.destroy();
+    this.topdown = null;
+    this.objectAssetsPromise = null;
+    this.objectImages = new Map();
+    this.toast?.destroy();
+    this.toast = null;
+    this.farmerSprite?.clearAction();
     this._hideChoiceOverlay();
-
-    if (this.dialogueBox) {
-      this.dialogueBox.hide();
-    }
-
+    this.dialogueBox?.hide();
     this.phase = 'idle';
     this.transitioning = false;
   }
 
-  // ==================== 对话阶段处理 ====================
-
-  /**
-   * 对话推进事件处理：仅在整段对话结束时推进阶段
-   * @param {Object} data - 事件数据
-   * @private
-   */
+  /** 根据对话所处阶段进入探索或开门动画。 */
   _onDialogueNext(data) {
-    if (!data || !data.finished) return;
-
+    if (!data?.finished) return;
     if (this.phase === 'intro') {
-      // 前 4 行对话结束 → 开始解谜
-      this.phase = 'puzzle';
-      return;
-    }
-
-    if (this.phase === 'outro') {
-      // 后 4 行对话结束 → 发放印记 → 切场景
-      this._onOutroComplete();
-      return;
+      this._startExploration();
+    } else if (this.phase === 'outro') {
+      this._startGateOpening();
     }
   }
 
-  // ==================== 解谜逻辑 ====================
+  /** 开始俯视自由移动阶段。 */
+  _startExploration() {
+    this.phase = 'explore';
+    this.topdown.setSceneInfo('第二章 · 荔枝园', '按顺序找到目标树，靠近后主动摘取');
+    this.topdown.setMovementLocked(false);
+    this.topdown.setInteractionEnabled(true);
+    this.topdown.setProgress(`荔枝 ${this.harvested.size} / 4 · 下一棵：${LYCHEE_SEQUENCE[this.harvestStep]}`);
+    this.topdown.setExitStatus('出口：栅栏关闭');
+  }
 
-  /**
-   * 树点击处理：校验是否为当前步骤期望的树
-   * @param {number} treeIndex - 被点击树的 0 基索引
-   * @private
-   */
-  _onTreeClick(treeIndex) {
-    // 仅在解谜阶段且未在晃动时响应
-    if (this.phase !== 'puzzle') return;
-    if (this.shakeTime > 0) return;
+  /** 统一处理老婆婆、指示牌、树和出口的主动互动。 */
+  _onInteract(target) {
+    this.gooseSprite?.playAction('interact', { facing: this.player.facing });
+    if (target.id === 'grandma') {
+      this.farmerSprite?.playAction('interact', { facing: 1, restart: true });
+      this._onGrandmaInteract();
+      return;
+    }
+    if (target.id === 'sign') {
+      this.toast?.show('摘取顺序：3 → 1 → 4 → 2。摘错不会清空已完成进度。');
+      return;
+    }
+    if (target.isTree) {
+      this._onTreeInteract(target);
+      return;
+    }
+    if (target.isExit) this._onExitInteract();
+  }
 
-    const expectedTree = CORRECT_SEQUENCE[this.puzzleStep];
+  /** 处理树木摘取：错误只提示，正确推进已有进度。 */
+  _onTreeInteract(tree) {
+    if (this.phase !== 'explore' || this.harvested.has(tree.id)) return;
+    const expected = LYCHEE_SEQUENCE[this.harvestStep];
+    const selected = Number(tree.label);
+    if (selected !== expected) {
+      this.eventBus.emit(EVENT.SFX_PLAY, { name: 'error' });
+      this.toast?.show(`这不是老婆婆要的第 ${expected} 棵，已摘进度不会清空。`);
+      return;
+    }
 
-    if (treeIndex === expectedTree) {
-      // 正确：锁定该树高亮
-      this.treeStates[treeIndex] = 'locked';
-      this.puzzleStep++;
+    this.phase = 'harvesting';
+    this.harvested.add(tree.id);
+    this.harvestStep += 1;
+    this.farmerSprite?.playAction('lychee', { facing: 1, restart: true });
+    this.feedbackTimer = HARVEST_FEEDBACK_DURATION;
+    this.topdown.setMovementLocked(true);
+    this.eventBus.emit(EVENT.SFX_PLAY, { name: 'collect' });
+    this.toast?.show(`摘对了！荔枝 ${this.harvested.size} / 4`);
 
-      // 四步全对 → 栅栏门动画
-      if (this.puzzleStep >= CORRECT_SEQUENCE.length) {
-        this._onPuzzleSolved();
-      }
+    this.feedbackTimerId = setTimeout(() => {
+      this.feedbackTimerId = null;
+      this._finishHarvestFeedback();
+    }, HARVEST_FEEDBACK_DURATION * 1000);
+  }
+
+  _finishHarvestFeedback() {
+    if (this.phase !== 'harvesting') return;
+    if (this.harvested.size >= LYCHEE_SEQUENCE.length) {
+      this.phase = 'deliveryReady';
+      this.topdown.setSceneInfo('第二章 · 荔枝园', '集齐荔枝，回到老婆婆处主动交付');
+      this.topdown.setProgress('荔枝 4 / 4 · 请交给老婆婆');
     } else {
-      // 错误：全部重置 + 晃动 + 提示
-      this._onWrongTree();
+      this.phase = 'explore';
+      this.topdown.setSceneInfo('第二章 · 荔枝园', '按顺序找到目标树，靠近后主动摘取');
+      this.topdown.setProgress(`荔枝 ${this.harvested.size} / 4 · 下一棵：${LYCHEE_SEQUENCE[this.harvestStep]}`);
     }
+    this.topdown.setMovementLocked(false);
   }
 
-  /**
-   * 错误点击处理：所有树进入晃动状态，重置步数，显示提示
-   * @private
-   */
-  _onWrongTree() {
-    // 所有已锁定的树也重置为晃动
-    this.treeStates = this.treeStates.map(() => 'shaking');
-    this.shakeTime = SHAKE_DURATION;
-    this.puzzleStep = 0;
-
-    // 错误音效（对应 PRD §7.8 SFX 反馈）
-    this.eventBus.emit(EVENT.SFX_PLAY, { name: 'error' });
-
-    // Toast 提示（使用 ch2 第 5 行的台词）
-    this.toast.show('顺序不对……让我再看看指示牌。');
-  }
-
-  /**
-   * 解谜完成：开始栅栏门开启动画
-   * @private
-   */
-  _onPuzzleSolved() {
-    this.phase = 'gate_opening';
-    this.gateProgress = 0;
-    // 开门音效（对应 PRD §7.8 SFX 栅栏开门）
-    this.eventBus.emit(EVENT.SFX_PLAY, { name: 'gate' });
-  }
-
-  /**
-   * 栅栏门动画完成：播放后续对话（ch2 第 6-9 行）
-   * @private
-   */
-  _onGateOpenComplete() {
+  /** 只有集齐后才能从老婆婆处触发交付对话。 */
+  _onGrandmaInteract() {
+    if (this.phase !== 'deliveryReady') {
+      this.toast?.show('先按老婆婆说的顺序摘齐 4 串荔枝，再回来交给她。');
+      return;
+    }
     this.phase = 'outro';
-    // 播放 ch2 后 4 行对话（含 puzzle:solved、badge:unlock、chapter:next）
+    this.topdown.setMovementLocked(true);
+    this.topdown.setInteractionEnabled(false);
     this.dialogueBox.show(DIALOGUES.ch2.slice(5, 9));
   }
 
-  /**
-   * 尾声对话完成：发放印记，广播章节完成，然后弹出抉择点
-   * 抉择在发放沿途印记后、推进下一场景之前插入（对应剧情分支设计 v4）
-   * @private
-   */
-  _onOutroComplete() {
-    if (this.transitioning) return;
-    this.badgeSystem.unlock('lychee');
-    // 广播章节完成，触发自动存档
+  /** 对话完成后才打开栅栏。 */
+  _startGateOpening() {
+    this.phase = 'gateOpening';
+    this.gateProgress = 0;
+    this.topdown.setMovementLocked(true);
+    this.eventBus.emit(EVENT.SFX_PLAY, { name: 'gate' });
+  }
+
+  /** 栅栏打开后才启用出口目标。 */
+  _onGateOpened() {
+    if (this.phase !== 'gateOpening') return;
+    this.phase = 'exitReady';
+    this.exitOpen = true;
+    this.topdown.setMap({ obstacles: this._getObstacles() });
+    this.topdown.setSceneInfo('第二章 · 荔枝园', '栅栏已打开，走到出口继续前行');
+    this.topdown.setProgress('荔枝 4 / 4 · 已交付');
+    this.topdown.setExitStatus('出口：已打开');
+    this.topdown.setMovementLocked(false);
+    this.topdown.setInteractionEnabled(true);
+    this.toast?.show('栅栏打开了！走到右侧出口继续前行。');
+  }
+
+  /** 走到出口后才发放印记并进入原有章节抉择。 */
+  _onExitInteract() {
+    if (this.phase !== 'exitReady' || !this.exitOpen || this.transitioning) return;
+    this.transitioning = true;
+    this.phase = 'choice';
+    this.topdown.setMovementLocked(true);
+    this.topdown.setInteractionEnabled(false);
+    this.badgeSystem.unlockOrReveal('lychee');
     this.eventBus.emit(EVENT.CHAPTER_COMPLETE, { chapter: 'ch2' });
-    // 发放沿途印记后弹出抉择，玩家选择"留下"或"继续探寻"
     this._showChoice();
   }
 
-  // ==================== 抉择点 ====================
-
-  /**
-   * 弹出抉择覆盖层：让玩家选择"留下种荔枝"或"继续探寻"
-   * 若已在前序场景选过"留下"，则本场景"留下"按钮置灰（伞形多结局仅允许一次留下）
-   * @private
-   */
   _showChoice() {
-    // 隐藏对话框，避免与抉择覆盖层重叠
-    if (this.dialogueBox) {
-      this.dialogueBox.hide();
-    }
-    // 已选过其他场景"留下"则置灰本场景"留下"按钮
-    const existingChoice = this.getChoice();
-    const stayDisabled = existingChoice !== null && existingChoice !== undefined;
-
+    this.dialogueBox?.hide();
     this.choiceOverlay = new ChoiceOverlay({ eventBus: this.eventBus, container: this.container });
     this.choiceOverlay.show({
       title: CHOICE_CONFIG.title,
       stayLabel: CHOICE_CONFIG.stayLabel,
       continueLabel: CHOICE_CONFIG.continueLabel,
-      stayDisabled,
+      stayDisabled: this.getChoice() !== null && this.getChoice() !== undefined,
       sceneId: CHOICE_CONFIG.sceneId,
     });
   }
 
-  /**
-   * 玩家选"留下"：广播锁定事件（主循环负责记录 choice），然后推进到下一场景
-   * 留下不影响流程推进，仅记录选择供终章松山湖结算
-   * @param {Object} data - 事件数据，data.sceneId 为当前场景 id
-   * @private
-   */
   _onChoiceStay(data) {
-    // 抉择覆盖层未显示或场景 id 不匹配则忽略，避免跨场景误触
-    if (!this.choiceOverlay) return;
-    if (!data || data.sceneId !== CHOICE_CONFIG.sceneId) return;
-    // 留下选择由 main.js 的 CHOICE_STAY 监听写入存档，此处仅推进场景
+    if (!this.choiceOverlay || data?.sceneId !== CHOICE_CONFIG.sceneId) return;
     this._advanceToNextScene();
   }
 
-  /**
-   * 玩家选"继续"：直接推进到下一场景
-   * @param {Object} data - 事件数据
-   * @private
-   */
   _onChoiceContinue(data) {
-    if (!this.choiceOverlay) return;
-    if (!data || data.sceneId !== CHOICE_CONFIG.sceneId) return;
+    if (!this.choiceOverlay || data?.sceneId !== CHOICE_CONFIG.sceneId) return;
     this._advanceToNextScene();
   }
 
-  /**
-   * 推进到下一场景：隐藏抉择覆盖层并切换场景
-   * @private
-   */
   _advanceToNextScene() {
-    if (this.transitioning) return;
-    this.transitioning = true;
+    if (!this.transitioning) return;
     this._hideChoiceOverlay();
     this.sceneManager.change(CHOICE_CONFIG.nextChapter);
   }
 
-  /**
-   * 隐藏并销毁抉择覆盖层
-   * @private
-   */
   _hideChoiceOverlay() {
-    if (this.choiceOverlay) {
-      this.choiceOverlay.hide();
-      this.choiceOverlay = null;
+    this.choiceOverlay?.hide();
+    this.choiceOverlay = null;
+  }
+
+  /** 共享碰撞层只描述真正不可穿越的实体，互动点始终独立于 solid 矩形。 */
+  _getObstacles() {
+    const obstacles = [
+      { id: 'fence-left', solid: true, x: 22, y: 88, width: 18, height: 548 },
+      { id: 'fence-top', solid: true, x: 206, y: 88, width: 1018, height: 18 },
+      { id: 'fence-right-top', solid: true, x: 1228, y: 88, width: 18, height: 34 },
+      { id: 'fence-right-bottom', solid: true, x: 1228, y: 204, width: 18, height: 446 },
+      { id: 'fence-bottom', solid: true, x: 318, y: 650, width: 908, height: 18 },
+      { id: 'work-area', solid: true, ...WORK_AREA },
+      ...LYCHEE_TREES.map((tree) => ({
+        id: `tree-trunk-${tree.label}`,
+        solid: true,
+        ...tree.solidFootprint,
+      })),
+    ];
+
+    if (!this.exitOpen) {
+      obstacles.push({ id: 'exit-gate', solid: true, ...GATE });
     }
+    return obstacles;
   }
 
-  // ==================== DOM 热区构建 ====================
+  _getInteractables() {
+    return [
+      ...LYCHEE_TREES.map((tree) => ({
+        ...tree,
+        ...tree.interaction,
+        isTree: true,
+        zoneType: 'interaction',
+        markerLabel: `荔枝树 ${tree.label}`,
+        actionLabel: '摘取',
+        hideMarker: true,
+        available: () => this.phase === 'explore' && !this.harvested.has(tree.id),
+      })),
+      {
+        id: 'grandma',
+        ...GRANDMA,
+        zoneType: 'interaction',
+        label: '老婆婆',
+        markerLabel: '老婆婆',
+        actionLabel: () => (this.phase === 'deliveryReady' ? '交付' : '交谈'),
+        isCharacter: true,
+        characterLabelOffset: 112,
+        available: () => ['explore', 'deliveryReady'].includes(this.phase),
+      },
+      {
+        id: 'sign',
+        ...SIGN,
+        zoneType: 'interaction',
+        label: '指示牌',
+        markerLabel: '顺序提示',
+        actionLabel: '查看',
+        available: () => ['explore', 'deliveryReady'].includes(this.phase),
+      },
+      {
+        id: 'exit',
+        ...EXIT,
+        zoneType: 'interaction',
+        isExit: true,
+        label: '果园出口',
+        markerLabel: '出口',
+        actionLabel: '离开',
+        hideMarker: true,
+        available: () => this.exitOpen && this.phase === 'exitReady',
+      },
+    ];
+  }
 
-  /**
-   * 构建 DOM 热区层：5 棵树的可点击区域
-   * 使用 canvas 的 boundingRect 精确定位，保证热区与 Canvas 绘制对齐
-   * @private
-   */
-  _buildDom() {
-    this.domRoot = document.createElement('div');
-    this.domRoot.setAttribute('data-lychee-scene', '');
-    this.domRoot.style.cssText = `
-      position: fixed; z-index: 50; pointer-events: none;
-    `;
-
-    this.treeHotZones = [];
-    for (let i = 0; i < TREE_DATA.length; i++) {
-      const zone = document.createElement('div');
-      zone.style.cssText = `
-        position: absolute; pointer-events: auto; cursor: pointer;
-        border-radius: 50%; display: none;
-      `;
-      // 闭包捕获索引，避免回调中 i 被覆盖
-      const treeIndex = i;
-      zone.addEventListener('click', () => this._onTreeClick(treeIndex));
-      this.domRoot.appendChild(zone);
-      this.treeHotZones.push(zone);
+  /** 绘制 16:9 正式地图；资源加载期间只保留无文字的纯色兜底，避免伪造地图物件。 */
+  _drawMap(ctx) {
+    const backgroundImage = this.exitOpen && this.openBackgroundImage
+      ? this.openBackgroundImage
+      : this.backgroundImage;
+    if (backgroundImage) {
+      ctx.drawImage(backgroundImage, 0, 0, GAME.WIDTH, GAME.HEIGHT);
+      return;
     }
 
-    this.container.appendChild(this.domRoot);
-    this._updateDomPosition();
-  }
-
-  /**
-   * 根据 Canvas 显示区域更新热区位置和尺寸
-   * 保证热区与 Canvas 绘制的树精确对齐
-   * @private
-   */
-  _updateDomPosition() {
-    const canvas = document.getElementById('game');
-    if (!canvas || !this.domRoot) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = rect.width / GAME.WIDTH;
-    const scaleY = rect.height / GAME.HEIGHT;
-
-    // DOM 容器匹配 Canvas 显示区域
-    this.domRoot.style.left = rect.left + 'px';
-    this.domRoot.style.top = rect.top + 'px';
-    this.domRoot.style.width = rect.width + 'px';
-    this.domRoot.style.height = rect.height + 'px';
-
-    for (let i = 0; i < TREE_DATA.length; i++) {
-      const tree = TREE_DATA[i];
-      const zone = this.treeHotZones[i];
-      if (!zone) continue;
-
-      // 热区尺寸按缩放比适配，但不小于 44px
-      const zoneSize = Math.max(HOT_ZONE_SIZE * Math.min(scaleX, scaleY), 44);
-      const centerX = tree.x * scaleX;
-      const centerY = tree.y * scaleY;
-
-      zone.style.width = zoneSize + 'px';
-      zone.style.height = zoneSize + 'px';
-      zone.style.left = centerX - zoneSize / 2 + 'px';
-      zone.style.top = centerY - zoneSize / 2 + 'px';
-
-      // 仅在解谜阶段显示热区
-      zone.style.display = this.phase === 'puzzle' ? 'block' : 'none';
-    }
-  }
-
-  /**
-   * 窗口尺寸变化时重新定位热区
-   * @private
-   */
-  _resizeHandler() {
-    this._updateDomPosition();
-  }
-
-  /**
-   * 销毁 DOM 热区层
-   * @private
-   */
-  _destroyDom() {
-    if (this.domRoot && this.domRoot.parentNode) {
-      this.domRoot.parentNode.removeChild(this.domRoot);
-    }
-    this.domRoot = null;
-    this.treeHotZones = [];
-  }
-
-  // ==================== Canvas 绘制 ====================
-
-  /**
-   * 绘制荔枝园背景：绿色调渐变 + 地面 + 远景树丛
-   * @param {CanvasRenderingContext2D} ctx
-   * @private
-   */
-  _drawBackground(ctx) {
-    // 绿色调渐变背景
-    const gradient = ctx.createLinearGradient(0, 0, 0, GAME.HEIGHT);
-    gradient.addColorStop(0, '#1a3a1a');
-    gradient.addColorStop(0.5, '#2d5a2d');
-    gradient.addColorStop(1, '#1e3e1e');
-    ctx.fillStyle = gradient;
+    ctx.fillStyle = '#7f9d58';
     ctx.fillRect(0, 0, GAME.WIDTH, GAME.HEIGHT);
-
-    // 远景树丛剪影
-    ctx.fillStyle = 'rgba(20, 60, 20, 0.6)';
-    for (let x = 0; x < GAME.WIDTH; x += 120) {
-      ctx.beginPath();
-      ctx.arc(x, 100, 60 + Math.sin(x * 0.01) * 20, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // 地面（草地）
-    ctx.fillStyle = '#3a6a3a';
-    ctx.fillRect(0, GAME.HEIGHT - 120, GAME.WIDTH, 120);
-
-    // 草地纹理
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < GAME.WIDTH; x += 60) {
-      ctx.beginPath();
-      ctx.moveTo(x, GAME.HEIGHT - 120);
-      ctx.lineTo(x, GAME.HEIGHT);
-      ctx.stroke();
-    }
-
-    // 阳光光斑（模拟树荫斑驳光影）
-    for (let i = 0; i < 6; i++) {
-      const x = ((this.animTime * 10 + i * 220) % (GAME.WIDTH + 100)) - 50;
-      const y = 200 + Math.sin(this.animTime * 0.5 + i) * 30;
-      const alpha = 0.05 + Math.sin(this.animTime + i) * 0.02;
-      ctx.fillStyle = `rgba(255, 255, 200, ${Math.max(0, alpha)})`;
-      ctx.beginPath();
-      ctx.arc(x, y, 40, 0, Math.PI * 2);
-      ctx.fill();
-    }
   }
 
-  /**
-   * 绘制指示牌：显示正确序列 3→1→4→2
-   * @param {CanvasRenderingContext2D} ctx
-   * @private
-   */
-  _drawSign(ctx) {
+  _drawFarmer(ctx) {
+    if (!this.farmerSprite) return;
+    const { x, y } = GRANDMA;
+    this.farmerSprite?.draw(ctx, x, y, {
+      width: 146,
+      height: 146,
+    });
+  }
+
+  _loadSceneObjects() {
+    if (this.objectAssetsPromise) return this.objectAssetsPromise;
+
+    // 树木、围栏、果实和关闭的栅栏都已经烘焙在正式背景；只保留状态变化后的开门贴图。
+    this.objectAssetsPromise = loadSceneObjectAssets(this.assetLoader, {
+      gateOpen: SCENE_OBJECT_ASSETS.lychee.gateOpen,
+    }).then((images) => {
+      this.objectImages = images;
+      return images;
+    });
+    return this.objectAssetsPromise;
+  }
+
+  _drawSceneObjects(ctx) {
+    if (!this.exitOpen) return;
+    const gate = {
+      assetKey: 'gateOpen',
+      x: GATE.x + GATE.width / 2,
+      y: GATE.y + GATE.height + 2,
+      width: 176,
+      height: 142,
+      anchorY: 1,
+      fallbackColor: SCENE_OBJECT_ASSETS.lychee.gateOpen.fallbackColor,
+    };
+
+    drawSceneObjects(ctx, this.objectImages, [gate]);
+  }
+
+  /** 异步加载正式地图，地图加载失败不影响对话与解谜逻辑。 */
+  _loadBackground() {
+    if (this.backgroundPromise) return this.backgroundPromise;
+
+    const loadOrNull = (url) => Promise.resolve(this._loadImage(url)).catch(() => null);
+    this.backgroundPromise = Promise.all([
+      loadOrNull(LYCHEE_BACKGROUND_URL),
+      loadOrNull(LYCHEE_OPEN_BACKGROUND_URL),
+    ]).then(([closedImage, openImage]) => {
+      this.backgroundImage = closedImage;
+      this.openBackgroundImage = openImage;
+      return closedImage;
+    });
+    return this.backgroundPromise;
+  }
+
+  /** 统一走资源加载器，测试环境没有 Image 时安全降级。 */
+  _loadImage(url) {
+    if (this.assetLoader?.loadImage) return this.assetLoader.loadImage(url);
+    if (typeof Image === 'undefined') return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => resolve(null);
+      image.src = url;
+    });
+  }
+
+  _drawFeedback(ctx) {
     ctx.save();
-
-    // 牌子背景
-    ctx.fillStyle = '#8B4513';
-    ctx.fillRect(SIGN_X - 50, SIGN_Y - 40, 100, 70);
-
-    // 牌子边框
-    ctx.strokeStyle = '#5C2E0C';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(SIGN_X - 50, SIGN_Y - 40, 100, 70);
-
-    // 支柱
-    ctx.fillStyle = '#5C2E0C';
-    ctx.fillRect(SIGN_X - 5, SIGN_Y + 30, 10, 50);
-
-    // 序列文字
-    ctx.fillStyle = '#fbbf24';
-    ctx.font = 'bold 18px sans-serif';
+    ctx.globalAlpha = Math.min(1, this.feedbackTimer / 0.2);
+    ctx.fillStyle = '#fff3b0';
+    ctx.font = '700 24px Microsoft YaHei, sans-serif';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('3→1→4→2', SIGN_X, SIGN_Y - 5);
-
-    // 标题
-    ctx.fillStyle = '#f0e68c';
-    ctx.font = '11px sans-serif';
-    ctx.fillText('点树顺序', SIGN_X, SIGN_Y + 18);
-
+    ctx.fillText('摘取成功！', this.player.x, this.player.y - 76);
     ctx.restore();
-  }
-
-  /**
-   * 绘制 5 棵荔枝树：树冠 + 编号 + 状态高亮/晃动
-   * @param {CanvasRenderingContext2D} ctx
-   * @private
-   */
-  _drawTrees(ctx) {
-    for (let i = 0; i < TREE_DATA.length; i++) {
-      const tree = TREE_DATA[i];
-      const state = this.treeStates[i] || 'normal';
-
-      // 晃动偏移
-      let shakeOffset = 0;
-      if (state === 'shaking' && this.shakeTime > 0) {
-        shakeOffset = Math.sin(this.shakeTime * 40) * 6;
-      }
-
-      const drawX = tree.x + shakeOffset;
-      const drawY = tree.y;
-
-      ctx.save();
-
-      // 树干
-      ctx.fillStyle = '#5C2E0C';
-      ctx.fillRect(drawX - 8, drawY + 20, 16, 60);
-
-      // 树冠颜色根据状态变化
-      let canopyColor = '#2d7a2d';
-      if (state === 'locked') {
-        canopyColor = '#fbbf24';
-      } else if (state === 'shaking') {
-        canopyColor = '#ef4444';
-      }
-
-      // 树冠（多个圆形叠加模拟荔枝树冠）
-      ctx.fillStyle = canopyColor;
-      ctx.beginPath();
-      ctx.arc(drawX, drawY, 35, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(drawX - 25, drawY + 10, 28, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(drawX + 25, drawY + 10, 28, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 荔枝果实点缀（红色小圆点）
-      ctx.fillStyle = state === 'locked' ? '#f97316' : '#dc2626';
-      const fruitPositions = [
-        { x: -15, y: -5 }, { x: 10, y: -15 }, { x: 20, y: 5 },
-        { x: -10, y: 15 }, { x: 25, y: -5 }, { x: -25, y: 0 },
-      ];
-      for (const fp of fruitPositions) {
-        ctx.beginPath();
-        ctx.arc(drawX + fp.x, drawY + fp.y, 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 锁定状态发光效果
-      if (state === 'locked') {
-        ctx.strokeStyle = 'rgba(251, 191, 36, 0.6)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(drawX, drawY, 42, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      // 编号标签
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 16px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(tree.label, drawX, drawY);
-
-      ctx.restore();
-    }
-  }
-
-  /**
-   * 绘制栅栏门：根据 gateProgress 滑动开启
-   * @param {CanvasRenderingContext2D} ctx
-   * @private
-   */
-  _drawGate(ctx) {
-    ctx.save();
-
-    // 栅栏门滑动偏移（向右滑出）
-    const slideOffset = this.gateProgress * 120;
-
-    // 栅栏门框架
-    ctx.fillStyle = '#8B4513';
-    ctx.fillRect(GATE_X + slideOffset, GATE_Y, 8, 200);
-    ctx.fillRect(GATE_X + slideOffset + 30, GATE_Y, 8, 200);
-
-    // 栅栏横条
-    ctx.fillStyle = '#A0522D';
-    for (let y = 0; y < 200; y += 30) {
-      ctx.fillRect(GATE_X + slideOffset, GATE_Y + y, 38, 6);
-    }
-
-    // 栅栏门顶部装饰
-    ctx.fillStyle = '#5C2E0C';
-    ctx.fillRect(GATE_X + slideOffset - 2, GATE_Y - 10, 42, 10);
-
-    ctx.restore();
-  }
-
-  /**
-   * 绘制莞小鹅角色：站立在场景入口处
-   * @param {CanvasRenderingContext2D} ctx
-   * @private
-   */
-  _drawPlayer(ctx) {
-    // 对话期间用独立立绘承担角色表现，隐藏场景内的小角色，避免两套形象重叠。
-    if (this.dialogueBox?.visible) return;
-
-    const drawX = this.player.x;
-    const drawY = this.player.y;
-    const spriteDrawn = this.gooseSprite?.draw(ctx, drawX, drawY) ?? false;
-    if (!spriteDrawn) {
-      const halfSize = PLAYER_SIZE / 2;
-      ctx.save();
-      ctx.fillStyle = '#d97706';
-      ctx.fillRect(drawX - halfSize, drawY - halfSize, PLAYER_SIZE, PLAYER_SIZE);
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(drawX - halfSize, drawY - halfSize, PLAYER_SIZE, PLAYER_SIZE);
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(drawX - 11, drawY - 14, 5, 5);
-      ctx.fillRect(drawX - 1, drawY - 14, 5, 5);
-      ctx.restore();
-    }
   }
 }

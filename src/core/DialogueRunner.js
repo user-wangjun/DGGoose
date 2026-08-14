@@ -143,6 +143,57 @@ export class DialogueRunner {
   }
 
   /**
+   * 返回可持久化的逐字状态。
+   * 对话行本身也写入快照，避免继续游戏时只恢复到章节开头而丢失当前段落。
+   * @returns {{lines:Array, lineIndex:number, displayedCount:number, elapsed:number, finished:boolean}}
+   */
+  getSaveState() {
+    return {
+      lines: this.lines.map((line) => ({
+        ...line,
+        tags: Array.isArray(line?.tags) ? line.tags.slice() : [],
+      })),
+      lineIndex: this.lineIndex,
+      displayedCount: this.displayedCount,
+      elapsed: this.elapsed,
+      finished: this.finished,
+    };
+  }
+
+  /**
+   * 从存档恢复逐字游标，不触发当前行标签，避免恢复时重复播放动作/音效。
+   * @param {Object} state - getSaveState 返回的状态
+   * @returns {Object|null} 恢复后的当前行
+   */
+  restoreSaveState(state) {
+    const lines = Array.isArray(state?.lines) ? state.lines : [];
+    this.lines = lines.map((line) => ({
+      ...line,
+      who: typeof line?.who === 'string' ? line.who : '',
+      txt: typeof line?.txt === 'string' ? line.txt : '',
+      tags: Array.isArray(line?.tags) ? line.tags.slice() : [],
+    }));
+    const maxIndex = this.lines.length - 1;
+    this.lineIndex = Number.isInteger(state?.lineIndex)
+      ? Math.max(-1, Math.min(state.lineIndex, maxIndex))
+      : -1;
+    const currentLine = this.lines[this.lineIndex];
+    const maxDisplayed = currentLine?.txt?.length || 0;
+    this.displayedCount = Number.isFinite(state?.displayedCount)
+      ? Math.max(0, Math.min(state.displayedCount, maxDisplayed))
+      : 0;
+    this.elapsed = Number.isFinite(state?.elapsed) ? Math.max(0, state.elapsed) : 0;
+    this.finished = Boolean(state?.finished);
+    if (this.lines.length === 0) {
+      this.lineIndex = -1;
+      this.displayedCount = 0;
+      this.finished = true;
+    }
+    this.lastAdvanceTime = 0;
+    return this.getCurrent();
+  }
+
+  /**
    * 设置逐字速度
    * @param {number} speed - 字/秒
    */

@@ -97,6 +97,16 @@ describe('DialogueBox 对话框', () => {
       expect(leftPortrait.style.display).toBe('none');
       expect(rightPortrait.style.display).toBe('none');
     });
+
+    it('对白显示时消费 interact，避免结束对白的空格继续触发场景动作', () => {
+      dialogueBox.show([
+        { who: '旁白', txt: '前面有堵墙。', tags: [] },
+      ]);
+
+      expect(dialogueBox._onInteract('interact')).toBe(true);
+      dialogueBox.hide();
+      expect(dialogueBox._onInteract('interact')).toBeUndefined();
+    });
   });
 
   describe('立绘明暗切换 - 说话人高亮', () => {
@@ -141,8 +151,8 @@ describe('DialogueBox 对话框', () => {
       expect(leftPortrait.hasAttribute('data-portrait-dim')).toBe(true);
     });
 
-    it('旁白说话时（NPC已出场），两侧立绘都暗化', () => {
-      // 先让NPC出场，再切换到旁白
+    it('旁白说话时保留低亮度莞小鹅，但不显示右侧 NPC 头像', () => {
+      // 先让 NPC 出场，再切换到旁白；旁白不能借用上一位 NPC 的头像。
       dialogueBox.show([
         { who: '教练', txt: '你好', tags: [] },
         { who: '旁白', txt: '夜幕降临，工厂里一片寂静。', tags: [] },
@@ -155,7 +165,8 @@ describe('DialogueBox 对话框', () => {
       const leftPortrait = container.querySelector('[data-portrait-left]');
       const rightPortrait = container.querySelector('[data-portrait-right]');
       expect(leftPortrait.hasAttribute('data-portrait-dim')).toBe(true);
-      expect(rightPortrait.hasAttribute('data-portrait-dim')).toBe(true);
+      expect(rightPortrait.style.display).toBe('none');
+      expect(rightPortrait.hasAttribute('data-portrait-dim')).toBe(false);
     });
 
     it('切换说话人时，明暗状态正确切换', () => {
@@ -252,6 +263,77 @@ describe('DialogueBox 对话框', () => {
       expect(rightPortrait).toBeNull();
       simpleBox.destroy();
       cleanContainer.remove();
+    });
+
+    it('头像映射不完整时不创建可见的空头像框或破图', () => {
+      dialogueBox.destroy();
+      const cleanContainer = document.createElement('div');
+      document.body.appendChild(cleanContainer);
+      const partialBox = new DialogueBox({
+        container: cleanContainer,
+        runner,
+        eventBus,
+        input: mockInput,
+        portraitMap: { '教练': 'assets/ui/portraits/coach_portrait_default.png' },
+      });
+      partialBox.mount();
+      partialBox.show([{ who: '未知角色', txt: '这是一条安全降级提示。', tags: [] }]);
+
+      const leftPortrait = cleanContainer.querySelector('[data-portrait-left]');
+      const rightPortrait = cleanContainer.querySelector('[data-portrait-right]');
+      expect(leftPortrait.querySelector('img')).toBeNull();
+      expect(leftPortrait.style.display).toBe('none');
+      expect(rightPortrait.style.display).toBe('none');
+      expect(rightPortrait.querySelector('img').getAttribute('src')).toBeNull();
+
+      partialBox.destroy();
+      cleanContainer.remove();
+    });
+  });
+
+  describe('正式纸张布局与关闭恢复', () => {
+    it('长文本保持单一正文节点并启用换行与滚动保护', () => {
+      const longText = '岭南的风从荔枝园一路吹到松山湖，'.repeat(80);
+      dialogueBox.show([{ who: '莞小鹅', txt: longText, tags: [] }]);
+      runner.update(longText.length / 100 + 1);
+      dialogueBox.update(0);
+
+      const box = container.querySelector('[data-dialogue-box]');
+      const text = container.querySelector('[data-dialogue-text]');
+      expect(box.getAttribute('data-dialogue-mode')).toBe('gxe');
+      expect(text.textContent).toBe(longText);
+      expect(text.parentElement).toBe(container.querySelector('[data-dialogue-content]'));
+      expect(text.style.overflowY).toBe('auto');
+      expect(text.style.overflowWrap).toBe('anywhere');
+      expect(text.style.wordBreak).toBe('break-word');
+      expect(container.querySelectorAll('[data-dialogue-text]').length).toBe(1);
+    });
+
+    it('关闭对话后隐藏立绘、清空运行器并恢复输入状态', () => {
+      dialogueBox.show([{ who: '教练', txt: '欢迎来到篮球馆。', tags: [] }]);
+      expect(dialogueBox._inputLocked).toBe(true);
+      expect(mockInput.setJoystickVector).toHaveBeenCalledWith(0, 0);
+
+      dialogueBox.hide();
+
+      expect(dialogueBox.visible).toBe(false);
+      expect(dialogueBox._inputLocked).toBe(false);
+      expect(dialogueBox.runner.getCurrent()).toBeNull();
+      expect(container.querySelector('[data-dialogue-box]').style.display).toBe('none');
+      expect(container.querySelector('[data-portrait-left]').style.display).toBe('none');
+      expect(container.querySelector('[data-portrait-right]').style.display).toBe('none');
+    });
+
+    it('系统提示使用独立模式并隐藏所有立绘', () => {
+      dialogueBox.show([{ who: '系统', txt: '已获得出厂合格证。', tags: [] }]);
+
+      const box = container.querySelector('[data-dialogue-box]');
+      const leftPortrait = container.querySelector('[data-portrait-left]');
+      const rightPortrait = container.querySelector('[data-portrait-right]');
+      expect(box.getAttribute('data-dialogue-mode')).toBe('system');
+      expect(box.getAttribute('data-dialogue-speaker')).toBe('系统');
+      expect(leftPortrait.style.display).toBe('none');
+      expect(rightPortrait.style.display).toBe('none');
     });
   });
 });

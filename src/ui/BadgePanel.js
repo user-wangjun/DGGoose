@@ -1,4 +1,5 @@
 import { BADGES } from '../data/badges.js';
+import { getBadgeAssetUrl } from '../data/badgeAssets.js';
 import { EVENT } from '../config.js';
 import { applyButtonStyle } from './ButtonTheme.js';
 
@@ -268,11 +269,7 @@ export class BadgePanel {
         padding: 16px; text-align: center; cursor: default;
         transition: transform 0.2s ease;
       `;
-      const icon = document.createElement('div');
-      icon.style.cssText = `
-        font-size: 36px; margin-bottom: 8px;
-      `;
-      icon.textContent = this._getBadgeIcon(badge.id);
+      const icon = this._createBadgeImage(badge, true, info.name);
       card.appendChild(icon);
 
       const name = document.createElement('div');
@@ -294,9 +291,7 @@ export class BadgePanel {
         background: #1e1e2e; border: 2px solid #333; border-radius: 12px;
         padding: 16px; text-align: center; opacity: 0.5;
       `;
-      const icon = document.createElement('div');
-      icon.style.cssText = 'font-size: 36px; margin-bottom: 8px; filter: grayscale(100%);';
-      icon.textContent = '?';
+      const icon = this._createBadgeImage(badge, false, '未获得印记');
       card.appendChild(icon);
 
       const name = document.createElement('div');
@@ -311,6 +306,36 @@ export class BadgePanel {
     }
 
     return card;
+  }
+
+  /**
+   * 创建正式徽章图像。
+   * 锁定态直接使用对应灰态资源，避免 CSS 滤镜改变已验收的轮廓与光照。
+   * @private
+   * @param {Object} badge - 印记定义
+   * @param {boolean} unlocked - 是否已解锁
+   * @param {string} alt - 无障碍替代文本
+   * @returns {HTMLImageElement|HTMLElement}
+   */
+  _createBadgeImage(badge, unlocked, alt) {
+    const src = getBadgeAssetUrl(badge.id, unlocked);
+    if (!src) {
+      const fallback = document.createElement('div');
+      fallback.textContent = '?';
+      fallback.style.cssText = 'font-size: 36px; margin-bottom: 8px;';
+      return fallback;
+    }
+
+    const image = document.createElement('img');
+    image.setAttribute('data-badge-card-image', badge.id);
+    image.src = src;
+    image.alt = alt;
+    image.decoding = 'async';
+    image.style.cssText = `
+      display: block; width: 88px; height: 88px; object-fit: contain;
+      margin: 0 auto 8px; filter: drop-shadow(0 0 8px ${unlocked ? 'rgba(255, 205, 108, 0.38)' : 'rgba(255,255,255,0.06)'});
+    `;
+    return image;
   }
 
   /**
@@ -371,26 +396,6 @@ export class BadgePanel {
     setTimeout(() => {
       card.classList.remove('badge-collect-pulse');
     }, COLLECT_ANIMATION_MS);
-  }
-
-  /**
-   * 根据印记 id 返回对应的 emoji 图标
-   * 无匹配时使用通用徽章图标
-   * @private
-   * @param {string} id - 印记 id
-   * @returns {string}
-   */
-  _getBadgeIcon(id) {
-    const iconMap = {
-      factory_cert: '📜',
-      basketball: '🏀',
-      lychee: '🍒',
-      roast_goose: '🦆',
-      industrial: '⚙️',
-      campus: '📚',
-      lake: '🏞️',
-    };
-    return iconMap[id] || '🏅';
   }
 
   /**

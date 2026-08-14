@@ -2,9 +2,12 @@ import { PLAYER_SPEEDS } from '../config.js';
 
 /** 鹅厂侧视场景共用的物理参数，避免场景绘制和角色碰撞各自猜坐标。 */
 export const FACTORY_PHYSICS_DEFAULTS = Object.freeze({
-  groundY: 540,
-  leftBound: 60,
-  wallX: 1080,
+  groundY: 508,
+  leftBound: 420,
+  wallX: 1042,
+  wallRight: 1094,
+  worldWidth: 1280,
+  postWallRightBound: null,
   playerRadius: 30,
   gravity: 1500,
   jumpVelocity: -500,
@@ -27,7 +30,10 @@ export class FactoryPhysics {
    * @param {Object} [options]
    * @param {number} [options.groundY] - 角色脚底所在的地面高度
    * @param {number} [options.leftBound] - 角色中心的左侧活动边界
-   * @param {number} [options.wallX] - 围墙左边缘 X 坐标
+   * @param {number} [options.wallX] - 围墙左边缘 X 坐标（兼容旧调用）
+   * @param {number} [options.wallRight] - 围墙右边缘 X 坐标
+   * @param {number} [options.worldWidth=1280] - 场景逻辑宽度
+   * @param {number} [options.postWallRightBound] - 翻墙后角色中心的右边界
    * @param {number} [options.playerRadius] - 用于围墙碰撞的角色半径
    * @param {number} [options.gravity] - 重力加速度（px/s²）
    * @param {number} [options.jumpVelocity] - 起跳瞬间的垂直速度（向上为负）
@@ -40,7 +46,17 @@ export class FactoryPhysics {
 
     this._groundY = config.groundY;
     this._leftBound = config.leftBound;
-    this._rightBound = Math.max(config.leftBound, config.wallX - config.playerRadius);
+    this._wallLeft = Number.isFinite(config.wallLeft) ? config.wallLeft : config.wallX;
+    this._wallRight = Number.isFinite(config.wallRight) ? config.wallRight : this._wallLeft;
+    this._preWallRightBound = Math.max(this._leftBound, this._wallLeft - config.playerRadius);
+    this._postWallRightBound = Math.max(
+      this._preWallRightBound,
+      Number.isFinite(config.postWallRightBound)
+        ? config.postWallRightBound
+        : config.worldWidth - config.playerRadius,
+    );
+    this._wallCleared = Boolean(config.wallCleared);
+    this._rightBound = this._wallCleared ? this._postWallRightBound : this._preWallRightBound;
     this._gravity = config.gravity;
     this._jumpVelocity = config.jumpVelocity;
     this._walkSpeed = config.walkSpeed;
@@ -96,6 +112,21 @@ export class FactoryPhysics {
     return this._rightBound;
   }
 
+  /** 围墙左边缘，供场景交互判定和翻墙演出定位使用。 */
+  get wallLeft() {
+    return this._wallLeft;
+  }
+
+  /** 围墙右边缘，供翻墙后落点计算使用。 */
+  get wallRight() {
+    return this._wallRight;
+  }
+
+  /** 玩家是否已经完成翻墙并进入右侧活动区。 */
+  get wallCleared() {
+    return this._wallCleared;
+  }
+
   /**
    * 设置场景切换或检查点位置，同时清除上一段跳跃的垂直速度。
    * @param {number} x
@@ -107,6 +138,24 @@ export class FactoryPhysics {
     this._velocity.y = 0;
     this._grounded = this._y >= this._groundY;
     if (this._grounded) this._y = this._groundY;
+  }
+
+  /**
+   * 翻墙完成后解除墙前水平边界，并把角色放到明确的落地区域。
+   * 物理状态在这里一次性切换，避免绘制层越过墙后逻辑仍停留在墙前。
+   * @param {{x?:number,y?:number}} [position]
+   */
+  clearWall({ x = this._x, y = this._groundY } = {}) {
+    this._wallCleared = true;
+    this._rightBound = this._postWallRightBound;
+    this.setPosition(x, y);
+  }
+
+  /** 重新锁回墙前边界，供场景重入或测试恢复初始状态。 */
+  lockWall() {
+    this._wallCleared = false;
+    this._rightBound = this._preWallRightBound;
+    this._x = this._clampX(this._x);
   }
 
   /**
@@ -204,6 +253,30 @@ export class FactoryPhysics {
       jumping: !this._grounded,
       facing: this._facing,
       animState: this._animState,
+      wallCleared: this._wallCleared,
     };
+  }
+
+  /** 返回序章侧视物理的完整继续游戏状态。 */
+  getSaveState() {
+    return {
+      ...this.getState(),
+      jumpHeld: this._jumpHeld,
+    };
+  }
+
+  /** 恢复空中速度、地面状态、翻墙边界和动画状态。 */
+  restoreSaveState(state) {
+    if (!state || typeof state !== 'object') return;
+    this._wallCleared = Boolean(state.wallCleared);
+    this._rightBound = this._wallCleared ? this._postWallRightBound : this._preWallRightBound;
+    if (Number.isFinite(state.x)) this._x = this._clampX(state.x);
+    if (Number.isFinite(state.y)) this._y = Math.min(state.y, this._groundY);
+    if (Number.isFinite(state.velocity?.x)) this._velocity.x = state.velocity.x;
+    if (Number.isFinite(state.velocity?.y)) this._velocity.y = state.velocity.y;
+    this._grounded = Boolean(state.grounded);
+    this._jumpHeld = Boolean(state.jumpHeld);
+    if (state.facing === 1 || state.facing === -1) this._facing = state.facing;
+    if (['idle', 'walk', 'run'].includes(state.animState)) this._animState = state.animState;
   }
 }

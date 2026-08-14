@@ -116,13 +116,27 @@ export class InputManager {
    */
   _onKeyDown(e) {
     const key = e.key;
+    const isSpace = key === ' ' || e.code === 'Space';
+    const isEscape = key === 'Escape' || e.code === 'Escape';
 
     // 动作键直接触发事件，e.repeat 防止按住时重复触发
-    if (key === ' ' && !e.repeat) {
-      this._emitAction('interact');
+    if (isSpace) {
+      // 即使是重复 keydown 也要拦截默认行为，避免焦点按钮产生原生 click/页面滚动。
+      e.preventDefault?.();
+      if (!e.repeat) this._emitAction('interact');
       return;
     }
-    if (key === 'Escape' && !e.repeat) {
+    if (isEscape) {
+      // Escape 只作为游戏暂停/返回动作，不应触发浏览器级默认行为。
+      e.preventDefault?.();
+      if (e.repeat) return;
+
+      // 控件自己正在处理 Escape 时，不要把一次关闭/取消操作升级成返回主菜单。
+      const target = e.target;
+      if (target?.closest?.('button, input, textarea, select, a, [contenteditable="true"]')) {
+        return;
+      }
+
       this._emitAction('pause');
       return;
     }
@@ -156,8 +170,9 @@ export class InputManager {
    * @private
    */
   _emitAction(action) {
-    for (const cb of this.actionCallbacks) {
-      cb(action);
+    for (const cb of [...this.actionCallbacks]) {
+      // 对话框等上层交互可以消费动作，避免同一按键继续落到场景玩法层。
+      if (cb(action) === true) break;
     }
   }
 }

@@ -1,40 +1,50 @@
-import { GAME, EVENT } from '../config.js';
+import { GAME, EVENT, STEALTH_BACKGROUND_URL } from '../config.js';
 import { DIALOGUES } from '../data/dialogues.js';
-import { StealthLogic } from '../core/StealthLogic.js';
+import {
+  FLASHLIGHT_DEFAULT_HALF_ANGLE,
+  FLASHLIGHT_DEFAULT_RANGE,
+  StealthLogic,
+} from '../core/StealthLogic.js';
 import { ParticleSystem } from '../core/ParticleSystem.js';
 import { ChoiceOverlay } from '../ui/ChoiceOverlay.js';
+import { TopdownController } from '../core/TopdownController.js';
+// SceneObjectRenderer/SCENE_OBJECT_ASSETS remain part of the scene contract; this
+// map intentionally requests no static PNG because every shop object is baked in.
+import { drawSceneObjects, loadSceneObjectAssets } from '../core/SceneObjectRenderer.js';
+import { SCENE_OBJECT_ASSETS } from '../data/sceneObjectAssets.js';
+import { sortBySortY } from '../core/SceneLayout.js';
+import stealthMapSpec from '../../assets/bg/scene-04-roast-goose-shop/scene-04-map-spec.json';
 
 // ==================== 场景布局常量 ====================
 
 /** 玩家起点（左下角，店门入口侧） */
-const PLAYER_START_X = 160;
-const PLAYER_START_Y = 580;
+const PLAYER_START_X = stealthMapSpec.spawn.x;
+const PLAYER_START_Y = stealthMapSpec.spawn.y;
 
 /** 老板巡逻 Y 坐标（画布中部偏上） */
-const BOSS_Y = 380;
+const BOSS_Y = stealthMapSpec.boss.y;
+/** 老板脚底碰撞半径；路线校验、调试圆和巡逻状态共用。 */
+const BOSS_RADIUS = stealthMapSpec.boss.radius || 18;
 
 /** 烧鹅台位置与判定半径（右上方吊架） */
-const GOOSE_TABLE = { x: 1080, y: 240, radius: 42 };
+const GOOSE_TABLE = {
+  ...(stealthMapSpec.gooseTable.interaction || stealthMapSpec.gooseTable),
+};
 
 /** 3 个掩体：桌底 / 木桶 / 门帘，分布在玩家前往烧鹅台的路径上 */
-const COVERS = [
-  { x: 340, y: 540, name: '桌底' },
-  { x: 660, y: 560, name: '木桶' },
-  { x: 920, y: 470, name: '门帘' },
-];
+const COVERS = stealthMapSpec.covers;
 
-/** 警戒区半径（px），玩家与老板距离小于此值视为在老板视野内 */
-const DANGER_RADIUS = 210;
+/** 手电筒光锥参数；逻辑检测和 Canvas 光效共用，避免“看得见但不报警”。 */
+const FLASHLIGHT_RANGE = FLASHLIGHT_DEFAULT_RANGE;
+const FLASHLIGHT_HALF_ANGLE = FLASHLIGHT_DEFAULT_HALF_ANGLE;
 
 /** 被抓复位时间（秒），对应 PRD F6 */
 const CAUGHT_RESET_TIME = 1.6;
 
-/** 逃跑出口判定：玩家 X 小于此值视为逃出店门 */
-const EXIT_X = 120;
-
-/** 资源尚未完成加载时的兼容性占位尺寸；正常绘制使用 GooseSprite */
-const PLAYER_SIZE = 40;
-const BOSS_SIZE = 44;
+/** 与共享俯视控制器一致的角色碰撞半径。 */
+const PLAYER_RADIUS = 20;
+/** 复位节点位于店内中部通道，不堵住左侧店门出生点。 */
+const CAUGHT_RESET_PATROL_NODE = 1;
 
 /** 偷尝成功后发放的印记 id（对应 BADGES.roast_goose） */
 const BADGE_ID = 'roast_goose';
@@ -66,7 +76,7 @@ const CHOICE_CONFIG = {
  * 1. intro → 播放 ch3 前 5 行对话
  * 2. stealth → 对话结束触发潜行，玩家移动躲藏前往烧鹅台
  * 3. escaping → 到达烧鹅台偷尝后，带着烧鹅逃回左侧店门
- * 4. caught → 警觉度满值被抓获，1.6s 后复位到起点
+ * 4. caught → 手电筒照中且未藏好时立即抓获，1.6s 后复位到起点
  * 5. outro → 逃出后播放 ch3 后 5 行对话
  * 6. done → 发放印记 roast_goose，切换到 ch4
  */
@@ -81,9 +91,11 @@ export class StealthScene {
    * @param {InputManager} deps.input - 输入管理器
    * @param {PlayerController} deps.player - 角色控制器
    * @param {HTMLElement} deps.container - UI 挂载容器
+   * @param {import('../core/AssetLoader.js').AssetLoader} [deps.assetLoader] - 正式地图资源加载器
    * @param {import('../core/GooseSprite.js').GooseSprite} [deps.gooseSprite] - 莞小鹅序列帧绘制器
+   * @param {import('../core/BossSprite.js').BossSprite} [deps.bossSprite] - 烧鹅店老板动作绘制器
    */
-  constructor({ sceneManager, eventBus, badgeSystem, dialogueRunner, dialogueBox, input, player, container, getFps, getChoice, gooseSprite }) {
+  constructor({ sceneManager, eventBus, badgeSystem, dialogueRunner, dialogueBox, input, player, container, assetLoader, getFps, getChoice, gooseSprite, bossSprite }) {
     this.sceneManager = sceneManager;
     this.eventBus = eventBus;
     this.badgeSystem = badgeSystem;
@@ -92,7 +104,9 @@ export class StealthScene {
     this.input = input;
     this.player = player;
     this.container = container;
+    this.assetLoader = assetLoader || null;
     this.gooseSprite = gooseSprite || null;
+    this.bossSprite = bossSprite || null;
     /** FPS 提供函数（供粒子系统降级判断） */
     this.getFps = getFps || (() => 60);
     /** 读取已记录抉择的回调（用于判断"留下"按钮是否置灰，伞形多结局仅允许一次留下） */
@@ -106,16 +120,22 @@ export class StealthScene {
     this.caughtTimer = 0;
     /** 是否已偷尝烧鹅 */
     this.hasStolen = false;
+    /** 上一帧警觉度，用于只触发一次惊吓动作 */
+    this.lastAlert = 0;
     /** 标记是否已触发场景切换，防止重复调用 */
     this.transitioning = false;
-    /** DOM 提示元素引用 */
-    this.hintElement = null;
     /** 奔跑尘土粒子系统 */
     this.particles = null;
     /** 尘土发射累计计时（秒），控制发射频率 */
     this._dustTimer = 0;
     /** 抉择覆盖层实例（发放印记后弹出） */
     this.choiceOverlay = null;
+    /** 共享俯视移动/互动控制器 */
+    this.topdown = null;
+    /** 正式烧鹅店地图资源；角色与碰撞逻辑不依赖背景图片加载时序。 */
+    this.assets = { background: null };
+    this.assetsPromise = null;
+    this.animTime = 0;
 
     // 绑定回调，便于 onExit 精确移除
     this._onDialogueNext = this._onDialogueNext.bind(this);
@@ -128,12 +148,16 @@ export class StealthScene {
   /**
    * 场景进入：初始化潜行逻辑、设置玩家起点、注册事件、播放前 5 行对话
    */
-  onEnter() {
+  onEnter(params = {}) {
     this.phase = 'intro';
     this.caughtTimer = 0;
     this.hasStolen = false;
+    this.lastAlert = 0;
     this.transitioning = false;
     this._dustTimer = 0;
+    this.animTime = 0;
+
+    this._loadAssets();
 
     // 初始化奔跑尘土粒子系统
     this.particles = new ParticleSystem({ getFps: this.getFps });
@@ -149,10 +173,33 @@ export class StealthScene {
       coverThreshold: 26,
       bossY: BOSS_Y,
       gooseTable: GOOSE_TABLE,
+      patrolRoute: stealthMapSpec.patrolRoute,
+      patrolObstacles: this._getObstacles(),
+      bossRadius: BOSS_RADIUS,
     });
 
     // 设置玩家起点
     this.player.setPosition(PLAYER_START_X, PLAYER_START_Y);
+
+    this.topdown = new TopdownController({
+      player: this.player,
+      input: this.input,
+      container: this.container,
+      onInteract: (target) => this._onTopdownInteract(target),
+      title: '第三章 · 烧鹅店',
+      objective: '躲开老板视线，靠近掩体并前往烧鹅台',
+    });
+    this.topdown.setMap({
+      bounds: { ...stealthMapSpec.bounds },
+      obstacles: this._getObstacles(),
+      interactables: this._getInteractables(),
+      playerRadius: PLAYER_RADIUS,
+    });
+    this.topdown.mount();
+    this.topdown.setProgress('警觉度 0%');
+    this.topdown.setExitStatus('出口：先拿到烧鹅');
+    this.topdown.setMovementLocked(true);
+    this.topdown.setInteractionEnabled(false);
 
     // 注册对话结束事件，用于阶段推进
     this.eventBus.on(EVENT.DIALOGUE_NEXT, this._onDialogueNext);
@@ -160,11 +207,76 @@ export class StealthScene {
     this.eventBus.on(EVENT.CHOICE_STAY, this._onChoiceStay);
     this.eventBus.on(EVENT.CHOICE_CONTINUE, this._onChoiceContinue);
 
-    // 构建 DOM 提示
-    this._buildHint();
-
     // 播放 ch3 前 5 行对话（引导潜行）
     this.dialogueBox.show(DIALOGUES.ch3.slice(0, 5));
+    if (params?.restore) this._restoreSaveState(params.restore);
+  }
+
+  /** 返回潜行阶段、玩家位置、老板巡逻和警觉度的完整快照。 */
+  getSaveState() {
+    return {
+      phase: this.phase,
+      choiceVisible: Boolean(this.choiceOverlay),
+      caughtTimer: this.caughtTimer,
+      hasStolen: this.hasStolen,
+      lastAlert: this.lastAlert,
+      transitioning: this.transitioning,
+      dustTimer: this._dustTimer,
+      animTime: this.animTime,
+      player: this.player?.getSaveState?.() || this.player?.position || null,
+      logic: this.logic?.getSaveState?.() || null,
+      topdown: this.topdown?.getSaveState?.() || null,
+      dialogue: this.dialogueBox?.getSaveState?.() || null,
+    };
+  }
+
+  /** 恢复潜行、逃跑、被抓倒计时或尾声抉择，不重置老板巡逻。 */
+  _restoreSaveState(state) {
+    if (!state || typeof state !== 'object') return;
+    this.phase = typeof state.phase === 'string' ? state.phase : 'intro';
+    if (state.choiceVisible && this.phase === 'outro') this.phase = 'choice';
+    this.caughtTimer = Number.isFinite(state.caughtTimer) ? Math.max(0, state.caughtTimer) : 0;
+    this.hasStolen = Boolean(state.hasStolen);
+    this.lastAlert = Number.isFinite(state.lastAlert) ? state.lastAlert : 0;
+    this.transitioning = Boolean(state.transitioning || state.choiceVisible);
+    this._dustTimer = Number.isFinite(state.dustTimer) ? Math.max(0, state.dustTimer) : 0;
+    this.animTime = Number.isFinite(state.animTime) ? Math.max(0, state.animTime) : 0;
+    this.player?.restoreSaveState?.(state.player);
+    if (state.player && !this.player?.restoreSaveState) {
+      this.player?.setPosition?.(state.player.x, state.player.y);
+    }
+    this.logic?.restoreSaveState?.(state.logic);
+    this._syncRestoredPhase();
+    if (state.topdown) this.topdown?.restoreSaveState?.(state.topdown);
+    if (this.phase === 'choice') this._showChoice();
+    if (state.dialogue) this.dialogueBox?.restoreSaveState?.(state.dialogue);
+    else this.dialogueBox?.hide?.();
+  }
+
+  _syncRestoredPhase() {
+    if (!this.topdown) return;
+    const alert = Math.round(this.logic?.getAlert?.() ?? this.lastAlert ?? 0);
+    if (this.phase === 'stealth') {
+      this.topdown.setSceneInfo('第三章 · 烧鹅店', '躲开老板视线，靠近掩体并前往烧鹅台');
+      this.topdown.setExitStatus('出口：先拿到烧鹅');
+      this.topdown.setProgress(`警觉度 ${alert}%`);
+      this.topdown.setMovementLocked(false);
+      this.topdown.setInteractionEnabled(true);
+    } else if (this.phase === 'escaping') {
+      this.topdown.setSceneInfo('第三章 · 烧鹅店', '带着烧鹅回到左侧店门，靠近出口后主动逃出');
+      this.topdown.setProgress('目标：已拿到烧鹅');
+      this.topdown.setExitStatus('出口：已开放');
+      this.topdown.setMovementLocked(false);
+      this.topdown.setInteractionEnabled(true);
+    } else if (this.phase === 'caught') {
+      this.topdown.setSceneInfo('第三章 · 烧鹅店', '被手电筒照到了！烧鹅掉回去了，等待老板复位');
+      this.topdown.setProgress('警觉度 100% · 被发现');
+      this.topdown.setMovementLocked(true);
+      this.topdown.setInteractionEnabled(false);
+    } else {
+      this.topdown.setMovementLocked(true);
+      this.topdown.setInteractionEnabled(false);
+    }
   }
 
   /**
@@ -172,10 +284,15 @@ export class StealthScene {
    * @param {number} deltaTime - 帧间隔（秒）
    */
   update(deltaTime) {
+    this.animTime += deltaTime;
     // 始终推进对话框逐字显示（对话不可见时为空操作）
     this.dialogueBox.update(deltaTime);
     if (this.gooseSprite) {
       this.gooseSprite.update(deltaTime, this.player.animState, this.player.facing);
+    }
+    if (this.bossSprite && this.logic) {
+      const boss = this.logic.getBossPosition();
+      this.bossSprite.update(deltaTime, 'patrol', boss.direction);
     }
 
     // 对话阶段不处理潜行逻辑
@@ -194,6 +311,7 @@ export class StealthScene {
 
     // 潜行与逃跑阶段：更新老板巡逻、玩家移动、警觉度、目标检测
     if (this.phase === 'stealth' || this.phase === 'escaping') {
+      this.topdown?.update(deltaTime);
       this._updateStealth(deltaTime);
     }
 
@@ -202,7 +320,7 @@ export class StealthScene {
   }
 
   /**
-   * 潜行阶段核心更新：老板巡逻、玩家移动、警戒区与掩体判定、警觉度、目标检测
+   * 潜行阶段核心更新：老板巡逻、玩家移动、手电筒命中与掩体判定、警觉度、目标检测
    * @param {number} deltaTime - 帧间隔（秒）
    * @private
    */
@@ -210,51 +328,56 @@ export class StealthScene {
     // 更新老板巡逻位置
     this.logic.updateBoss(deltaTime);
 
-    // 玩家移动（输入由 PlayerController 读取）
-    this.player.update(deltaTime, this.input);
-
     // 奔跑时发射尘土粒子（对应 PRD §7.7 奔跑尘土）
     if (this.particles && this.player.animState === 'run') {
       this._dustTimer += deltaTime;
       if (this._dustTimer >= 0.08) {
         this._dustTimer = 0;
-        this.particles.emit(this.player.x, this.player.y + PLAYER_SIZE / 2, 'dust');
+        this.particles.emit(this.player.x, this.player.y + PLAYER_RADIUS, 'dust');
       }
     }
 
-    // 计算玩家是否在老板警戒区（面朝方向的视野范围内）
-    // 老板视野为方向性扇形：仅检测面朝方向半圆内的玩家
+    // 计算玩家是否在老板手电筒光锥内；路线转弯、光锥角度和障碍遮挡由逻辑层统一处理。
     const boss = this.logic.getBossPosition();
-    const dx = this.player.x - boss.x;
-    const dy = this.player.y - boss.y;
-    const distToBoss = Math.sqrt(dx * dx + dy * dy);
-    // 玩家必须在老板面朝方向（direction=1 向右 → dx>0；direction=-1 向左 → dx<0）
-    const inFrontOfBoss = (boss.direction === 1 && dx > 0) || (boss.direction === -1 && dx < 0);
-    const inDangerZone = inFrontOfBoss && distToBoss < DANGER_RADIUS;
+    const inDangerZone = this.logic.isInFlashlight(this.player.x, this.player.y, {
+      range: FLASHLIGHT_RANGE,
+      halfAngle: FLASHLIGHT_HALF_ANGLE,
+    });
 
     // 检测玩家是否近掩体（已藏好）
     const isHidden = this.logic.isNearCover(this.player.x, this.player.y, COVERS);
 
+    // 手电筒逻辑已经完成距离、角度和实体遮挡判定；实际照中且未藏好时直接抓捕。
+    if (this.logic.markCaughtIfVisible(inDangerZone, isHidden)) {
+      this._onCaught();
+      return;
+    }
+
     // 更新警觉度
     this.logic.updateAlert(deltaTime, inDangerZone, isHidden);
+    const alert = this.logic.getAlert();
+    this.topdown?.setProgress(`警觉度 ${Math.round(alert)}%`);
 
-    // 检测被抓：警觉度满值
+    // 掩体动作停在稳定躲藏姿态，离开掩体后恢复移动状态。
+    if (isHidden) {
+      this.gooseSprite?.playAction('hide', { facing: this.player.facing, hold: true });
+    } else if (this.gooseSprite?.isActionActive('hide')) {
+      this.gooseSprite.clearAction();
+    }
+
+    // 警觉度首次越过阈值时播放一次可爱的惊吓动作。
+    if (!isHidden && alert >= 55 && this.lastAlert < 55) {
+      this.gooseSprite?.playAction('scared', { facing: this.player.facing });
+    }
+    this.lastAlert = alert;
+
+    // 兼容渐进警觉度达到满值的旧逻辑
     if (this.logic.isCaught()) {
       this._onCaught();
       return;
     }
 
-    if (this.phase === 'stealth') {
-      // 潜行阶段：检测到达烧鹅台 → 偷尝
-      if (this.logic.isAtGooseTable(this.player.x, this.player.y)) {
-        this._onSteal();
-      }
-    } else if (this.phase === 'escaping') {
-      // 逃跑阶段：检测逃到左侧店门
-      if (this.player.x < EXIT_X) {
-        this._onEscape();
-      }
-    }
+    // 烧鹅台和店门都通过共享俯视控制器的主动互动触发，避免进入范围就跳过提示。
   }
 
   /**
@@ -264,16 +387,24 @@ export class StealthScene {
   draw(ctx) {
     if (!ctx) return;
     this._drawBackground(ctx);
-    this._drawCovers(ctx);
-    this._drawGooseTable(ctx);
-    this._drawBoss(ctx);
-    this._drawPlayer(ctx);
+    this._drawSceneObjects(ctx);
+    const boss = this.logic?.getBossPosition();
+    if (boss) this._drawFlashlight(ctx, boss);
+    const actors = sortBySortY([
+      boss ? { sortY: boss.y, draw: () => this._drawBoss(ctx) } : null,
+      this.player ? { sortY: this.player.y, draw: () => this._drawPlayer(ctx) } : null,
+    ].filter(Boolean));
+    actors.forEach((actor) => actor.draw());
+    this.topdown?.drawInteractables(ctx, this.animTime);
     // 尘土粒子渲染在角色之上
     if (this.particles) this.particles.draw(ctx);
-    // 警觉度条仅在潜行相关阶段显示
-    if (this.phase === 'stealth' || this.phase === 'escaping' || this.phase === 'caught') {
-      this._drawAlertBar(ctx);
-    }
+    this.topdown?.drawDebug(ctx, {
+      spawn: { x: PLAYER_START_X, y: PLAYER_START_Y },
+      exits: [{ id: 'shop-exit', ...stealthMapSpec.exit }],
+      patrolRoute: this.logic?.getPatrolRoute?.() || [],
+      boss,
+      bossRadius: BOSS_RADIUS,
+    });
   }
 
   /**
@@ -286,7 +417,8 @@ export class StealthScene {
     if (this.dialogueBox) {
       this.dialogueBox.hide();
     }
-    this._removeHint();
+    this.topdown?.destroy();
+    this.topdown = null;
     // 移除抉择覆盖层
     this._hideChoiceOverlay();
     // 清理粒子系统
@@ -294,6 +426,8 @@ export class StealthScene {
       this.particles.clear();
       this.particles = null;
     }
+    this.gooseSprite?.clearAction();
+    this.bossSprite?.clearAction();
     this.logic = null;
     this.phase = 'idle';
     this.transitioning = false;
@@ -312,7 +446,11 @@ export class StealthScene {
     if (this.phase === 'intro') {
       // 前 5 行对话结束 → 触发 stealth:start，进入潜行
       this.phase = 'stealth';
-      this._updateHint();
+      this.topdown?.setSceneInfo('第三章 · 烧鹅店', '躲开老板视线，靠近掩体并前往烧鹅台');
+      this.topdown?.setMovementLocked(false);
+      this.topdown?.setInteractionEnabled(true);
+      this.topdown?.setExitStatus('出口：先拿到烧鹅');
+      this.topdown?.setProgress(`警觉度 ${Math.round(this.logic?.getAlert?.() ?? 0)}%`);
       return;
     }
 
@@ -332,9 +470,12 @@ export class StealthScene {
   _onSteal() {
     this.hasStolen = true;
     this.phase = 'escaping';
+    this.gooseSprite?.playAction('eat', { facing: this.player.facing });
     // 偷尝音效（对应 PRD §7.8 SFX 偷吃）
     this.eventBus.emit(EVENT.SFX_PLAY, { name: 'steal' });
-    this._updateHint();
+    this.topdown?.setSceneInfo('第三章 · 烧鹅店', '带着烧鹅回到左侧店门，靠近出口后主动逃出');
+    this.topdown?.setProgress('目标：已拿到烧鹅');
+    this.topdown?.setExitStatus('出口：已开放');
   }
 
   /**
@@ -343,7 +484,8 @@ export class StealthScene {
    */
   _onEscape() {
     this.phase = 'outro';
-    this._updateHint();
+    this.topdown?.setMovementLocked(true);
+    this.topdown?.setInteractionEnabled(false);
     this.dialogueBox.show(DIALOGUES.ch3.slice(5, 10));
   }
 
@@ -352,23 +494,43 @@ export class StealthScene {
    * @private
    */
   _onCaught() {
+    // 烧鹅是本次潜行中的临时持有物；被抓后应掉回烧鹅台，不能带入下一次尝试。
+    this.hasStolen = false;
     this.phase = 'caught';
     this.caughtTimer = 0;
+    this.gooseSprite?.clearAction();
+    this.gooseSprite?.playAction('caught', { facing: this.player.facing, hold: true });
+    this.bossSprite?.playAction('caught', {
+      facing: this.logic?.getBossPosition().direction || 1,
+      hold: true,
+    });
+    this.topdown?.setMovementLocked(true);
+    this.topdown?.setInteractionEnabled(false);
+    this.topdown?.setProgress('警觉度 100% · 被发现');
     // 被抓音效（对应 PRD §7.8 SFX 被抓）
     this.eventBus.emit(EVENT.SFX_PLAY, { name: 'caught' });
-    this._updateHint();
+    this.topdown?.setSceneInfo('第三章 · 烧鹅店', '被手电筒照到了！烧鹅掉回去了，等待老板复位');
   }
 
   /**
-   * 被抓复位完成：玩家回到起点、警觉度归零，按是否已偷尝回到对应阶段
+   * 被抓复位完成：玩家回到起点、警觉度归零，重新开始本次潜行
    * @private
    */
   _onCaughtReset() {
     this.player.setPosition(PLAYER_START_X, PLAYER_START_Y);
     this.logic.resetAlert();
-    // 已偷尝则继续逃跑，否则继续潜行
-    this.phase = this.hasStolen ? 'escaping' : 'stealth';
-    this._updateHint();
+    this.logic.resetPatrol({ index: CAUGHT_RESET_PATROL_NODE, travelDirection: 1 });
+    this.lastAlert = 0;
+    // 复位是一次新的潜行尝试，必须重新前往烧鹅台偷取。
+    this.hasStolen = false;
+    this.gooseSprite?.clearAction();
+    this.bossSprite?.clearAction();
+    this.phase = 'stealth';
+    this.topdown?.setSceneInfo('第三章 · 烧鹅店', '躲开老板视线，靠近掩体并前往烧鹅台');
+    this.topdown?.setMovementLocked(false);
+    this.topdown?.setInteractionEnabled(true);
+    this.topdown?.setExitStatus('出口：先拿到烧鹅');
+    this.topdown?.setProgress(`警觉度 ${Math.round(this.logic?.getAlert?.() ?? 0)}%`);
   }
 
   /**
@@ -378,7 +540,7 @@ export class StealthScene {
    */
   _onOutroComplete() {
     if (this.transitioning) return;
-    this.badgeSystem.unlock(BADGE_ID);
+    this.badgeSystem.unlockOrReveal(BADGE_ID);
     // 广播章节完成，触发自动存档
     this.eventBus.emit(EVENT.CHAPTER_COMPLETE, { chapter: 'ch3' });
     // 发放沿途印记后弹出抉择，玩家选择"留下"或"继续前行"
@@ -458,261 +620,284 @@ export class StealthScene {
     }
   }
 
-  // ==================== DOM 提示层 ====================
-
-  /**
-   * 构建顶部方向控制提示条
-   * @private
-   */
-  _buildHint() {
-    this.hintElement = document.createElement('div');
-    this.hintElement.setAttribute('data-stealth-hint', '');
-    this.hintElement.style.cssText = `
-      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-      z-index: 6000; padding: 8px 22px; border-radius: 8px;
-      background: rgba(0,0,0,0.6); color: #fbbf24; font-size: 15px;
-      font-family: inherit; pointer-events: none; user-select: none;
-      max-width: 80vw; text-align: center;
-    `;
-    this.container.appendChild(this.hintElement);
-    this._updateHint();
+  /** 统一的俯视互动入口：掩体、烧鹅台和店门都显示上下文提示后才触发。 */
+  _onTopdownInteract(target) {
+    if (target.id === 'goose-table' && this.phase === 'stealth') {
+      this._onSteal();
+      return;
+    }
+    if (target.id === 'shop-exit' && this.phase === 'escaping') {
+      this._onEscape();
+      return;
+    }
+    if (target.isCover && (this.phase === 'stealth' || this.phase === 'escaping')) {
+      this.topdown?.setProgress(`警觉度 ${Math.round(this.logic?.getAlert?.() ?? 0)}% · 已接近掩体`);
+    }
   }
 
-  /**
-   * 根据当前阶段刷新提示文本
-   * @private
-   */
-  _updateHint() {
-    if (!this.hintElement) return;
-    let text = '';
-    if (this.phase === 'stealth') {
-      text = '躲开老板视线，靠近掩体藏好，前往右上烧鹅台偷尝（WASD/方向键移动）';
-    } else if (this.phase === 'escaping') {
-      text = '得手了！带着烧鹅逃回左侧店门！';
-    } else if (this.phase === 'caught') {
-      text = '被发现了！1.6 秒后复位……';
-    }
-    this.hintElement.textContent = text;
-    this.hintElement.style.display = text ? 'block' : 'none';
+  /** 只把地图规格中标记为 solid 的实体送入碰撞层；interaction zone 永远独立。 */
+  _getObstacles() {
+    return stealthMapSpec.obstacles
+      .filter((obstacle) => obstacle.solid === true)
+      .map((obstacle) => ({ ...obstacle }));
   }
 
-  /**
-   * 移除 DOM 提示元素
-   * @private
-   */
-  _removeHint() {
-    if (this.hintElement && this.hintElement.parentNode) {
-      this.hintElement.parentNode.removeChild(this.hintElement);
+  _getInteractables() {
+    return [
+      ...COVERS.map((cover, index) => ({
+        id: `cover-${index}`,
+        kind: 'interaction',
+        solid: false,
+        x: cover.x,
+        y: cover.y,
+        radius: cover.radius ?? 70,
+        isCover: true,
+        label: `${cover.name}掩体`,
+        markerLabel: `${cover.name} · 可藏`,
+        actionLabel: '躲藏',
+        hideMarker: true,
+        available: () => ['stealth', 'escaping'].includes(this.phase),
+      })),
+      {
+        id: 'goose-table',
+        kind: 'interaction',
+        interactionZone: true,
+        solid: false,
+        ...GOOSE_TABLE,
+        // 互动半径直接来自 map-spec，不能再用第二个更大的热区把玩家吸进展示台。
+        radius: GOOSE_TABLE.radius,
+        label: '烧鹅台',
+        markerLabel: '烧鹅台 · 互动',
+        actionLabel: '偷尝',
+        hideMarker: true,
+        available: () => this.phase === 'stealth',
+      },
+      {
+        id: 'shop-exit',
+        kind: 'interaction',
+        solid: false,
+        ...stealthMapSpec.exit,
+        isExit: true,
+        label: '店门出口',
+        markerLabel: '出口 / 回到街上',
+        actionLabel: '逃出',
+        available: () => this.phase === 'escaping',
+      },
+    ];
+  }
+
+  /** 异步加载正式背景；碰撞与剧情不依赖图片加载完成。 */
+  _loadAssets() {
+    if (this.assetsPromise) return this.assetsPromise;
+
+    this.assetsPromise = this._loadImage(STEALTH_BACKGROUND_URL).then((image) => {
+      this.assets.background = image;
+      return image;
+    });
+
+    return this.assetsPromise;
+  }
+
+  /** 统一走 AssetLoader，测试环境或无浏览器环境不强行访问 Image 全局对象。 */
+  _loadImage(url) {
+    if (this.assetLoader?.loadImage) {
+      return this.assetLoader.loadImage(url).catch(() => null);
     }
-    this.hintElement = null;
+
+    if (typeof Image === 'undefined') return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => resolve(null);
+      image.src = url;
+    });
   }
 
   // ==================== Canvas 绘制 ====================
 
   /**
-   * 绘制烧鹅店背景：暖黄+深褐渐变、顶部挂架横梁、木质地面
+   * 绘制正式烧鹅店地图；墙体、柜台、桌子、木桶、门帘和后厨隔断
+   * 只在 map-spec 中参与 solid 碰撞，背景本身不承担物理判定。
    * @param {CanvasRenderingContext2D} ctx
    * @private
    */
   _drawBackground(ctx) {
-    // 暖黄到深褐渐变，营造烧鹅店暖色氛围
-    const gradient = ctx.createLinearGradient(0, 0, 0, GAME.HEIGHT);
-    gradient.addColorStop(0, '#5c3a1e');
-    gradient.addColorStop(0.55, '#3d2412');
-    gradient.addColorStop(1, '#241208');
-    ctx.fillStyle = gradient;
+    if (this.assets.background) {
+      ctx.drawImage(this.assets.background, 0, 0, GAME.WIDTH, GAME.HEIGHT);
+      return;
+    }
+    ctx.fillStyle = '#4a3026';
     ctx.fillRect(0, 0, GAME.WIDTH, GAME.HEIGHT);
-
-    // 顶部挂架横梁（烧鹅吊架）
-    ctx.fillStyle = '#4a2d14';
-    ctx.fillRect(0, 120, GAME.WIDTH, 14);
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(0, 134, GAME.WIDTH, 4);
-
-    // 木质地面
-    ctx.fillStyle = '#3a2410';
-    ctx.fillRect(0, GAME.HEIGHT - 90, GAME.WIDTH, 90);
-    // 地板纹理线
-    ctx.strokeStyle = 'rgba(255,200,120,0.05)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < GAME.WIDTH; x += 70) {
-      ctx.beginPath();
-      ctx.moveTo(x, GAME.HEIGHT - 90);
-      ctx.lineTo(x, GAME.HEIGHT);
-      ctx.stroke();
-    }
-
-    // 左侧店门出口标识（逃跑阶段高亮）
-    if (this.phase === 'escaping') {
-      ctx.save();
-      ctx.fillStyle = 'rgba(251,191,36,0.18)';
-      ctx.fillRect(0, GAME.HEIGHT - 300, 90, 300);
-      ctx.fillStyle = 'rgba(251,191,36,0.85)';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('出口', 45, GAME.HEIGHT - 310);
-      ctx.restore();
-    }
   }
 
-  /**
-   * 绘制 3 个掩体：桌底（长桌）、木桶（圆形）、门帘（竖条纹）
-   * @param {CanvasRenderingContext2D} ctx
-   * @private
-   */
-  _drawCovers(ctx) {
-    ctx.save();
-
-    // 桌底：棕色长方形桌面 + 桌腿
-    const table = COVERS[0];
-    ctx.fillStyle = '#6b4423';
-    ctx.fillRect(table.x - 60, table.y - 16, 120, 12);
-    ctx.fillStyle = '#4a2d14';
-    ctx.fillRect(table.x - 54, table.y - 4, 8, 40);
-    ctx.fillRect(table.x + 46, table.y - 4, 8, 40);
-    // 桌底阴影（藏匿区暗示）
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(table.x - 50, table.y + 24, 100, 6);
-
-    // 木桶：棕色圆形
-    const barrel = COVERS[1];
-    ctx.fillStyle = '#7a4a1f';
-    ctx.beginPath();
-    ctx.arc(barrel.x, barrel.y, 26, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#4a2d14';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    // 木桶箍纹
-    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(barrel.x, barrel.y, 18, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // 门帘：竖条纹布帘
-    const curtain = COVERS[2];
-    ctx.fillStyle = '#8a4a2a';
-    ctx.fillRect(curtain.x - 30, curtain.y - 60, 60, 120);
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-    ctx.lineWidth = 2;
-    for (let i = -2; i <= 2; i++) {
-      ctx.beginPath();
-      ctx.moveTo(curtain.x + i * 12, curtain.y - 60);
-      ctx.lineTo(curtain.x + i * 12, curtain.y + 60);
-      ctx.stroke();
-    }
-
-    ctx.restore();
-  }
+  /** 烧鹅店主要桌台、柜台、木桶和门帘均已烘焙进正式背景，只保留透明互动热区。 */
+  _drawSceneObjects(_ctx) {}
 
   /**
-   * 绘制烧鹅台：右上吊架 + 烧鹅占位（偷尝后显示空架）
-   * @param {CanvasRenderingContext2D} ctx
-   * @private
-   */
-  _drawGooseTable(ctx) {
-    const table = GOOSE_TABLE;
-    ctx.save();
-
-    // 吊架挂钩
-    ctx.strokeStyle = '#3a2410';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(table.x, 134);
-    ctx.lineTo(table.x, table.y - 30);
-    ctx.stroke();
-
-    // 台面底座
-    ctx.fillStyle = '#5a3818';
-    ctx.fillRect(table.x - 50, table.y - 20, 100, 16);
-
-    if (!this.hasStolen) {
-      // 烧鹅占位：金黄色椭圆（未偷尝时显示）
-      ctx.fillStyle = '#d97706';
-      ctx.beginPath();
-      ctx.ellipse(table.x, table.y, 36, 22, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#92400e';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      // 烧鹅光泽
-      ctx.fillStyle = 'rgba(255,220,120,0.5)';
-      ctx.beginPath();
-      ctx.ellipse(table.x - 8, table.y - 6, 14, 6, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 潜行阶段显示提示
-      if (this.phase === 'stealth') {
-        ctx.fillStyle = 'rgba(251,191,36,0.85)';
-        ctx.font = '13px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('偷尝烧鹅', table.x, table.y - 36);
-      }
-    } else {
-      // 偷尝后：空架提示
-      ctx.fillStyle = 'rgba(180,180,180,0.4)';
-      ctx.font = '12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('（空）', table.x, table.y);
-    }
-
-    ctx.restore();
-  }
-
-  /**
-   * 绘制老板：红色方块占位 + 朝向眼睛 + 警戒区半透明圆
+   * 绘制老板：手电筒光锥 + 透明巡逻/抓捕 Sprite
    * @param {CanvasRenderingContext2D} ctx
    * @private
    */
   _drawBoss(ctx) {
     const boss = this.logic.getBossPosition();
-    const half = BOSS_SIZE / 2;
 
     ctx.save();
 
-    // 警戒区范围（潜行/逃跑阶段显示半透明红色半圆，仅覆盖老板面朝方向）
-    if (this.phase === 'stealth' || this.phase === 'escaping') {
-      ctx.fillStyle = 'rgba(239,68,68,0.08)';
-      ctx.strokeStyle = 'rgba(239,68,68,0.2)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      // direction=1 向右：右半圆（-π/2 到 π/2）；direction=-1 向左：左半圆（π/2 到 3π/2）
-      const startAngle = boss.direction === 1 ? -Math.PI / 2 : Math.PI / 2;
-      const endAngle = boss.direction === 1 ? Math.PI / 2 : (Math.PI * 3) / 2;
-      ctx.arc(boss.x, boss.y, DANGER_RADIUS, startAngle, endAngle);
-      ctx.lineTo(boss.x, boss.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    // 老板色块（红色方块占位）
-    ctx.fillStyle = '#dc2626';
-    ctx.fillRect(boss.x - half, boss.y - half, BOSS_SIZE, BOSS_SIZE);
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(boss.x - half, boss.y - half, BOSS_SIZE, BOSS_SIZE);
-
-    // 眼睛（根据朝向偏移）
-    ctx.fillStyle = '#1a1a2e';
-    const eyeOffset = boss.direction === 1 ? 4 : -4;
-    ctx.fillRect(boss.x + eyeOffset - 7, boss.y - 12, 5, 5);
-    ctx.fillRect(boss.x + eyeOffset + 3, boss.y - 12, 5, 5);
+    const bossSpriteDrawn = this.bossSprite?.draw(ctx, boss.x, boss.y, {
+      width: this.bossSprite.width,
+      height: this.bossSprite.height,
+      flipX: boss.direction < 0,
+    }) ?? false;
 
     // 被抓阶段闪烁警告
-    if (this.phase === 'caught') {
+    if (this.phase === 'caught' && bossSpriteDrawn) {
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('！', boss.x, boss.y - half - 8);
+      const warningOffset = this.bossSprite.height / 2;
+      ctx.fillText('！', boss.x, boss.y - warningOffset - 8);
     }
 
     ctx.restore();
   }
 
   /**
-   * 绘制莞小鹅：橙色烧鹅造型色块 + 朝向眼睛，藏好时半透明
+   * 绘制带渐变、脉动和灯头辉光的手电筒光束。
+   * 先裁剪到光锥再填充径向渐变，让光线有明显的中心亮度和边缘衰减。
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{x:number,y:number,angle:number,direction:number}} boss
+   * @private
+   */
+  _drawFlashlight(ctx, boss) {
+    if (!['stealth', 'escaping'].includes(this.phase)) return;
+    if (typeof ctx.createRadialGradient !== 'function') return;
+
+    // 光束长度保持固定，脉动只改变亮度；警觉度判定也使用同一个固定范围，
+    // 避免玩家站在边界时出现“画面没照到但警觉度上涨”的偶发不同步。
+    const pulse = 0.94 + Math.sin(this.animTime * 7) * 0.06;
+    const range = FLASHLIGHT_RANGE;
+    const angle = Number.isFinite(boss.flashlightAngle)
+      ? boss.flashlightAngle
+      : boss.direction < 0 ? Math.PI : 0;
+    const origin = boss.flashlightOrigin || boss;
+    const visibilityPoints = this._getFlashlightVisibilityPoints(origin, angle, range);
+
+    ctx.save();
+    ctx.globalAlpha *= pulse;
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    visibilityPoints.forEach((point) => ctx.lineTo(point.x, point.y));
+    ctx.closePath();
+    ctx.clip();
+
+    const beamGradient = ctx.createRadialGradient(origin.x, origin.y, 8, origin.x, origin.y, range);
+    beamGradient.addColorStop(0, 'rgba(255, 246, 180, 0.30)');
+    beamGradient.addColorStop(0.28, 'rgba(255, 224, 126, 0.16)');
+    beamGradient.addColorStop(0.7, 'rgba(255, 196, 72, 0.07)');
+    beamGradient.addColorStop(1, 'rgba(255, 196, 72, 0)');
+    ctx.fillStyle = beamGradient;
+    ctx.fillRect(origin.x - range, origin.y - range, range * 2, range * 2);
+    ctx.restore();
+
+    // 光锥边缘和灯头辉光提供方向感；警觉度升高时边缘偏红。
+    ctx.save();
+    ctx.globalAlpha *= pulse;
+    ctx.strokeStyle = this.logic.getAlert() >= 55
+      ? 'rgba(248, 113, 113, 0.48)'
+      : 'rgba(255, 231, 150, 0.30)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(visibilityPoints[0].x, visibilityPoints[0].y);
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(visibilityPoints[visibilityPoints.length - 1].x, visibilityPoints[visibilityPoints.length - 1].y);
+    ctx.stroke();
+
+    const lensGradient = ctx.createRadialGradient(origin.x, origin.y, 2, origin.x, origin.y, 28);
+    lensGradient.addColorStop(0, 'rgba(255, 251, 214, 0.8)');
+    lensGradient.addColorStop(0.35, 'rgba(255, 224, 126, 0.34)');
+    lensGradient.addColorStop(1, 'rgba(255, 224, 126, 0)');
+    ctx.fillStyle = lensGradient;
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /**
+   * 用同一份 solid 矩形计算光锥每条采样射线的可见终点。
+   * 这样画面上的光束会在柜台、桌子、展示台等实体前停止，
+   * 与 StealthLogic.isInFlashlight 的遮挡判定保持一致。
+   * @param {{x:number,y:number}} origin
+   * @param {number} angle
+   * @param {number} range
+   * @returns {Array<{x:number,y:number}>}
+   * @private
+   */
+  _getFlashlightVisibilityPoints(origin, angle, range) {
+    const samples = 48;
+    const halfAngle = FLASHLIGHT_HALF_ANGLE;
+    const points = [];
+    const obstacles = this._getObstacles();
+
+    for (let index = 0; index <= samples; index += 1) {
+      const rayAngle = angle - halfAngle + ((halfAngle * 2 * index) / samples);
+      const directionX = Math.cos(rayAngle);
+      const directionY = Math.sin(rayAngle);
+      let distance = range;
+
+      for (const obstacle of obstacles) {
+        if (this._pointInsideRect(origin, obstacle)) continue;
+        const hitDistance = this._rayRectDistance(origin, directionX, directionY, obstacle);
+        if (hitDistance !== null && hitDistance < distance) distance = hitDistance;
+      }
+
+      points.push({
+        x: origin.x + directionX * distance,
+        y: origin.y + directionY * distance,
+      });
+    }
+
+    return points;
+  }
+
+  /** 返回射线从 origin 到矩形边界的第一个正向交点距离。 */
+  _rayRectDistance(origin, directionX, directionY, rect) {
+    let near = -Infinity;
+    let far = Infinity;
+
+    const axes = [
+      { origin: origin.x, direction: directionX, min: rect.x, max: rect.x + rect.width },
+      { origin: origin.y, direction: directionY, min: rect.y, max: rect.y + rect.height },
+    ];
+
+    for (const axis of axes) {
+      if (Math.abs(axis.direction) < 0.000001) {
+        if (axis.origin < axis.min || axis.origin > axis.max) return null;
+        continue;
+      }
+
+      const first = (axis.min - axis.origin) / axis.direction;
+      const second = (axis.max - axis.origin) / axis.direction;
+      near = Math.max(near, Math.min(first, second));
+      far = Math.min(far, Math.max(first, second));
+      if (near > far) return null;
+    }
+
+    if (far < 0) return null;
+    return near >= 0 ? near : far;
+  }
+
+  _pointInsideRect(point, rect) {
+    return point.x >= rect.x
+      && point.x <= rect.x + rect.width
+      && point.y >= rect.y
+      && point.y <= rect.y + rect.height;
+  }
+
+  /**
+   * 绘制莞小鹅：使用真实透明序列帧，藏好时半透明
    * @param {CanvasRenderingContext2D} ctx
    * @private
    */
@@ -720,7 +905,6 @@ export class StealthScene {
     // 对话期间用独立立绘承担角色表现，隐藏场景内的小角色，避免两套形象重叠。
     if (this.dialogueBox?.visible) return;
 
-    const half = PLAYER_SIZE / 2;
     const isHidden = this.phase === 'stealth' || this.phase === 'escaping'
       ? this.logic.isNearCover(this.player.x, this.player.y, COVERS)
       : false;
@@ -728,20 +912,7 @@ export class StealthScene {
     const spriteDrawn = this.gooseSprite?.draw(ctx, this.player.x, this.player.y, {
       alpha: isHidden ? 0.45 : 1,
     }) ?? false;
-    if (!spriteDrawn) {
-      ctx.save();
-      ctx.globalAlpha = isHidden ? 0.45 : 1;
-      ctx.fillStyle = '#d97706';
-      ctx.fillRect(this.player.x - half, this.player.y - half, PLAYER_SIZE, PLAYER_SIZE);
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(this.player.x - half, this.player.y - half, PLAYER_SIZE, PLAYER_SIZE);
-      ctx.fillStyle = '#1a1a2e';
-      const eyeOffset = this.player.facing === 1 ? 5 : -5;
-      ctx.fillRect(this.player.x + eyeOffset - 6, this.player.y - 14, 5, 5);
-      ctx.fillRect(this.player.x + eyeOffset + 4, this.player.y - 14, 5, 5);
-      ctx.restore();
-    }
+    if (!spriteDrawn) return;
 
     // 藏好提示
     if (isHidden) {
@@ -749,54 +920,9 @@ export class StealthScene {
       ctx.fillStyle = 'rgba(34,197,94,0.9)';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('已藏好', this.player.x, this.player.y - half - 10);
+      ctx.fillText('已藏好', this.player.x, this.player.y - this.gooseSprite.height * 0.92 - 10);
       ctx.restore();
     }
   }
 
-  /**
-   * 绘制警觉度条：顶部居中，按警觉度分段着色
-   * @param {CanvasRenderingContext2D} ctx
-   * @private
-   */
-  _drawAlertBar(ctx) {
-    const alert = this.logic.getAlert();
-    const percent = alert / 100;
-    const barWidth = 300;
-    const barHeight = 18;
-    const barX = (GAME.WIDTH - barWidth) / 2;
-    const barY = 20;
-
-    ctx.save();
-
-    // 背景框
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(barX - 2, barY - 2, barWidth + 4, barHeight + 4);
-
-    // 警觉度填充：按分段着色（低绿/中黄/高红）
-    let fillColor;
-    if (percent < 0.4) {
-      fillColor = '#22c55e';
-    } else if (percent < 0.7) {
-      fillColor = '#eab308';
-    } else {
-      fillColor = '#ef4444';
-    }
-    ctx.fillStyle = fillColor;
-    ctx.fillRect(barX, barY, barWidth * percent, barHeight);
-
-    // 边框
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(barX, barY, barWidth, barHeight);
-
-    // 文字
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`警觉度 ${Math.round(alert)}%`, GAME.WIDTH / 2, barY + barHeight / 2);
-
-    ctx.restore();
-  }
 }

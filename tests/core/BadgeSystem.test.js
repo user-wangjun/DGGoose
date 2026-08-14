@@ -65,6 +65,46 @@ describe('BadgeSystem 印记收集系统', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('已获得印记可以重新触发展示事件但不重复计数', () => {
+    const handler = vi.fn();
+    eventBus.on(EVENT.BADGE_GET, handler);
+
+    badgeSystem.unlock('factory_cert');
+    const before = badgeSystem.getProgress();
+
+    expect(badgeSystem.reveal('factory_cert')).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(handler).toHaveBeenLastCalledWith(expect.objectContaining({
+      badge: expect.objectContaining({ id: 'factory_cert' }),
+      replay: true,
+    }));
+    expect(badgeSystem.getProgress()).toEqual(before);
+  });
+
+  it('首次或重玩调用 unlockOrReveal 都展示印记，重玩不重复计数', () => {
+    const handler = vi.fn();
+    eventBus.on(EVENT.BADGE_GET, handler);
+
+    expect(badgeSystem.unlockOrReveal('factory_cert')).toBe(true);
+    const before = badgeSystem.getProgress();
+
+    expect(badgeSystem.unlockOrReveal('factory_cert')).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(handler).toHaveBeenLastCalledWith(expect.objectContaining({
+      badge: expect.objectContaining({ id: 'factory_cert' }),
+      replay: true,
+    }));
+    expect(badgeSystem.getProgress()).toEqual(before);
+  });
+
+  it('unlockOrReveal 对未知印记返回 false 且不广播事件', () => {
+    const handler = vi.fn();
+    eventBus.on(EVENT.BADGE_GET, handler);
+
+    expect(badgeSystem.unlockOrReveal('unknown_badge')).toBe(false);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   // ---------- 进度计算 ----------
 
   // M5: 印记从 7 枚扩展为 12 枚（6 沿途 + 6 结局）

@@ -130,11 +130,68 @@ describe('InputManager 输入抽象层', () => {
       expect(callback).toHaveBeenCalledWith('interact');
     });
 
+    it('动作回调返回 true 后停止继续分发，避免同一空格触发场景互动', () => {
+      const dialogueCallback = vi.fn(() => true);
+      const sceneCallback = vi.fn();
+      input.onAction(dialogueCallback);
+      input.onAction(sceneCallback);
+
+      pressKey(' ');
+
+      expect(dialogueCallback).toHaveBeenCalledWith('interact');
+      expect(sceneCallback).not.toHaveBeenCalled();
+    });
+
+    it('KeyboardEvent.code 为 Space 时同样触发 interact 并阻止默认行为', () => {
+      const callback = vi.fn();
+      input.onAction(callback);
+      const event = new KeyboardEvent('keydown', {
+        key: 'Space',
+        code: 'Space',
+        bubbles: true,
+        cancelable: true,
+      });
+
+      target.dispatchEvent(event);
+
+      expect(callback).toHaveBeenCalledWith('interact');
+      expect(event.defaultPrevented).toBe(true);
+    });
+
     it('Escape → 触发 pause 动作', () => {
       const callback = vi.fn();
       input.onAction(callback);
       pressKey('Escape');
       expect(callback).toHaveBeenCalledWith('pause');
+    });
+
+    it('Space/Escape 会阻止浏览器默认行为，避免焦点按钮重复触发', () => {
+      const spaceEvent = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+      const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+
+      target.dispatchEvent(spaceEvent);
+      target.dispatchEvent(escapeEvent);
+
+      expect(spaceEvent.defaultPrevented).toBe(true);
+      expect(escapeEvent.defaultPrevented).toBe(true);
+    });
+
+    it('焦点控件消费 Escape 时不会触发全局返回菜单', () => {
+      const callback = vi.fn();
+      input.onAction(callback);
+      const button = document.createElement('button');
+      document.body.appendChild(button);
+      const event = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+
+      button.dispatchEvent(event);
+
+      expect(callback).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(true);
+      button.remove();
     });
 
     it('offAction 取消订阅后不再触发', () => {

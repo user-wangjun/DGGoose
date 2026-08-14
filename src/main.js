@@ -25,9 +25,15 @@ import { BadgeSystem } from './core/BadgeSystem.js';
 import { SaveSystem } from './core/SaveSystem.js';
 import { SettingsService } from './core/SettingsService.js';
 import { SceneManager } from './core/SceneManager.js';
+import { isTouchDevice } from './core/DeviceCapabilities.js';
+import { MapTransitionOverlay } from './core/MapTransitionOverlay.js';
 import { GooseSprite } from './core/GooseSprite.js';
+import { BossSprite } from './core/BossSprite.js';
+import { NpcSprite } from './core/NpcSprite.js';
 import { VirtualJoystick } from './ui/VirtualJoystick.js';
 import { DialogueBox } from './ui/DialogueBox.js';
+import { BadgeReveal } from './ui/BadgeReveal.js';
+import { EndingReviewPanel } from './ui/EndingReviewPanel.js';
 import { SettingsPanel } from './ui/SettingsPanel.js';
 import { MainMenuScene } from './scenes/MainMenuScene.js';
 import { createChapterSelectScene } from './scenes/ChapterSelectScene.js';
@@ -55,44 +61,15 @@ function initCanvas() {
 }
 
 /**
- * 检测设备是否支持触摸
- * @returns {boolean}
- */
-function isTouchDevice() {
-  return navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
-}
-
-/**
- * 印记收集闪光动效（对应 PRD §7.7 印记收集闪光：3 帧闪光序列 + 旋转）
- * 使用 DOM CSS 动画实现，0.8 秒后自动移除
- * @param {HTMLElement} container - UI 挂载容器
- */
-function _showBadgeFlash(container) {
-  const flash = document.createElement('div');
-  flash.setAttribute('data-badge-flash', '');
-  flash.style.cssText = `
-    position: fixed; top: 50%; left: 50%;
-    transform: translate(-50%, -50%) scale(0);
-    z-index: 5000; pointer-events: none;
-    width: 120px; height: 120px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(251,191,36,0.6) 50%, rgba(251,191,36,0) 100%);
-    animation: gxe-badge-flash 0.8s ease-out forwards;
-  `;
-  container.appendChild(flash);
-
-  // 动画结束后移除元素
-  flash.addEventListener('animationend', () => {
-    if (flash.parentNode) flash.parentNode.removeChild(flash);
-  });
-}
-
-/**
  * 程序入口
  * 初始化画布 → 创建核心系统 → 组装场景 → 注册到 SceneManager → 启动主循环
  */
 function main() {
   const { canvas, ctx } = initCanvas();
   const uiRoot = document.getElementById('ui-root');
+  // 徽章核验必须挂在 body 层，确保它覆盖 z-index=20 的城市地图转场画布。
+  const badgeReveal = new BadgeReveal({ container: document.body });
+  let sceneManager = null;
 
   // ==================== 1. 核心系统初始化 ====================
 
@@ -135,6 +112,20 @@ function main() {
   // 莞小鹅核心序列帧：菜单阶段提前加载，进入序章时避免回退到色块占位
   const gooseSprite = new GooseSprite({ assetLoader });
   gooseSprite.load();
+  // 烧鹅店老板独立动作组：巡逻与抓捕不复用莞小鹅图集。
+  const bossSprite = new BossSprite({ assetLoader });
+  bossSprite.load();
+
+  // 场景 NPC 共用透明动作接入层；场景只绑定语义角色，不再各自绘制几何人物。
+  const npcSprites = {
+    coach: new NpcSprite({ character: 'coach', assetLoader }),
+    farmer: new NpcSprite({ character: 'farmer', assetLoader }),
+    engineer: new NpcSprite({ character: 'engineer', assetLoader }),
+    industrialWorker: new NpcSprite({ character: 'industrialWorker', assetLoader }),
+    dgutSenior: new NpcSprite({ character: 'dgutSenior', assetLoader }),
+    dgutSeniorFemale: new NpcSprite({ character: 'dgutSeniorFemale', assetLoader }),
+  };
+  for (const sprite of Object.values(npcSprites)) sprite.load();
 
   // P0 音频清单一次性预加载；浏览器自动播放策略仍由首次用户交互解锁。
   assetLoader.loadManifest(AUDIO_MANIFEST).then((results) => {
@@ -203,9 +194,11 @@ function main() {
   });
 
   // 印记收集时播放收集音效
-  eventBus.on(EVENT.BADGE_GET, () => {
+  eventBus.on(EVENT.BADGE_GET, (data) => {
     audio.playSfx('collect');
-    _showBadgeFlash(uiRoot);
+    badgeReveal.show(data?.badge, {
+      onConfirm: () => sceneManager?.confirmBadge(),
+    });
   });
 
   // 设置变更时联动音频音量
@@ -234,6 +227,13 @@ function main() {
   // 印记收集系统
   const badgeSystem = new BadgeSystem({ storage, eventBus });
 
+  // 结尾回顾只读取真实印记；展示密码写入独立状态，不污染实际通关进度。
+  const endingReviewPanel = new EndingReviewPanel({
+    container: uiRoot,
+    badgeSystem,
+    storage,
+  });
+
   // 存档系统
   const saveSystem = new SaveSystem({ storage, eventBus });
 
@@ -248,29 +248,56 @@ function main() {
     container: uiRoot,
   });
 
-  // 场景管理器（注入 eventBus 以广播场景切换事件）
-  const sceneManager = new SceneManager({ eventBus });
+  // 城市地图转场：静态地图、路线、徽章进度和 Tip 分层绘制，避免把动态内容烘焙进背景。
+  const mapTransition = new MapTransitionOverlay({ assetLoader });
+  mapTransition.mount(canvas);
+  mapTransition.load();
 
-  // ==================== 2. 摇杆向量同步 ====================
-  // 在主循环外注册 input 的动作事件，确保全局可用
-  input.onAction((action) => {
-    if (action === 'pause') {
-      // Esc 暂停：返回主菜单（仅游戏中可用）
-      if (sceneManager.currentName && sceneManager.currentName !== 'menu') {
-        sceneManager.change('menu');
-      }
-    }
-  });
+  // 场景管理器（注入 eventBus 以广播场景切换事件，并叠加城市地图转场）
+  sceneManager = new SceneManager({ eventBus, transition: mapTransition });
+
+  // ==================== 2. 离开位置保存 ====================
+  // 场景在 onExit 前提供快照，入口层负责把快照写入 slot1；这样 Escape、
+  // 页面关闭和章节完成自动存档走同一份数据，不会出现“章节到了但玩法回到开头”。
+  const saveCurrentRun = () => {
+    if (!sceneManager || ['menu', 'chapterSelect'].includes(sceneManager.currentName)) return false;
+    const snapshot = sceneManager.captureCurrentState?.();
+    if (!snapshot) return false;
+
+    saveSystem.autoSave({
+      chapter: snapshot.scene,
+      checkpoint: snapshot.state,
+      badges: badgeSystem.unlockedIds.slice(),
+      settings: settingsService.getAll(),
+      ending: snapshot.state?.endingId || null,
+    });
+    return true;
+  };
+
+  const onPause = (action) => {
+    if (action !== 'pause') return false;
+    if (sceneManager.currentName === 'menu') return true;
+    saveCurrentRun();
+    sceneManager.change('menu');
+    return true;
+  };
+  input.onAction(onPause);
+  window.addEventListener('beforeunload', saveCurrentRun);
 
   // ==================== 2.5 自动存档连接 ====================
   // 监听章节完成事件，自动写入 slot1 存档（对应 PRD F11 自动存档）
   eventBus.on(EVENT.CHAPTER_COMPLETE, (data) => {
+    const chapter = data.chapter || 'finale';
+    const snapshot = sceneManager?.captureCurrentState?.();
+    const checkpoint = snapshot?.scene === chapter
+      ? snapshot.state
+      : (data.ending || '');
     saveSystem.autoSave({
-      chapter: data.chapter || 'finale',
-      checkpoint: data.ending || '',
+      chapter,
+      checkpoint,
       badges: badgeSystem.unlockedIds.slice(),
       settings: settingsService.getAll(),
-      ending: data.ending || null,
+      ending: data.ending || snapshot?.state?.endingId || null,
     });
   });
 
@@ -295,6 +322,7 @@ function main() {
     sceneManager,
     saveSystem,
     settingsPanel,
+    endingReviewPanel,
     assetLoader,
     container: uiRoot,
   });
@@ -319,6 +347,7 @@ function main() {
     input,
     player,
     container: uiRoot,
+    assetLoader,
     getFps,
     gooseSprite,
   });
@@ -332,9 +361,14 @@ function main() {
     dialogueRunner,
     dialogueBox,
     input,
+    player,
     container: uiRoot,
+    canvas,
+    assetLoader,
     getFps,
     getChoice,
+    gooseSprite,
+    coachSprite: npcSprites.coach,
   });
   sceneManager.register('ch1', basketballScene);
 
@@ -348,8 +382,10 @@ function main() {
     input,
     player,
     container: uiRoot,
+    assetLoader,
     getChoice,
     gooseSprite,
+    farmerSprite: npcSprites.farmer,
   });
   sceneManager.register('ch2', lycheeScene);
 
@@ -363,9 +399,11 @@ function main() {
     input,
     player,
     container: uiRoot,
+    assetLoader,
     getFps,
     getChoice,
     gooseSprite,
+    bossSprite,
   });
   sceneManager.register('ch3', stealthScene);
 
@@ -377,8 +415,13 @@ function main() {
     dialogueRunner,
     dialogueBox,
     input,
+    player,
     container: uiRoot,
+    assetLoader,
     getChoice,
+    gooseSprite,
+    engineerSprite: npcSprites.engineer,
+    industrialWorkerSprite: npcSprites.industrialWorker,
   });
   sceneManager.register('ch4', industrialScene);
 
@@ -390,8 +433,13 @@ function main() {
     dialogueRunner,
     dialogueBox,
     input,
+    player,
     container: uiRoot,
     getChoice,
+    gooseSprite,
+    seniorSprite: npcSprites.dgutSenior,
+    seniorFemaleSprite: npcSprites.dgutSeniorFemale,
+    assetLoader,
   });
   sceneManager.register('ch5', campusScene);
 
@@ -404,8 +452,10 @@ function main() {
     dialogueBox,
     input,
     container: uiRoot,
+    assetLoader,
     getFps,
     getChoice,
+    gooseSprite,
   });
   sceneManager.register('finale', songshanScene);
 
@@ -428,7 +478,14 @@ function main() {
   };
 
   game.setScene(sceneManager);
-  sceneManager.change('menu');
+  // 开发预览入口：允许直接查看已注册的正式场景，生产构建仍从主菜单启动。
+  const requestedScene = import.meta.env.DEV
+    ? new URLSearchParams(window.location.search).get('scene')
+    : null;
+  const initialScene = requestedScene && sceneManager.has(requestedScene)
+    ? requestedScene
+    : 'menu';
+  sceneManager.change(initialScene);
   game.start();
 
   console.log('[鹅厂出逃记] M3 章节玩法已启动');

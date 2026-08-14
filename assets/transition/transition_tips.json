@@ -150,51 +150,49 @@
   ],
   "timing": {
     "normalChapterSwitch": {
-      "durationMs": 1500,
+      "durationMs": 3600,
       "timeline": [
-        {"startMs": 0, "endMs": 250, "state": "map-reveal", "changes": {"mapOpacity": "0→1", "mapScale": "1.04→1.00", "mapTranslateYPx": "10→0", "mistOpacity": "0→0.35"}},
-        {"startMs": 200, "endMs": 700, "state": "route-draw", "changes": {"routeProgress": "0→1", "routeOpacity": "0→1"}},
-        {"startMs": 400, "endMs": 1100, "state": "marker-travel", "changes": {"markerPathT": "0→1", "markerRotation": "沿切线平滑跟随", "markerBob": "±3px"}},
-        {"startMs": 680, "endMs": 1200, "state": "tip-enter", "changes": {"tipOpacity": "0→1→0", "tipTranslateYPx": "8→0→-4"}},
-        {"startMs": 900, "endMs": 1300, "state": "target-highlight", "changes": {"targetGlow": "0→1→0.65", "targetScale": "1→1.08→1"}},
-        {"startMs": 1300, "endMs": 1500, "state": "fade-out", "changes": {"mapAndOverlayOpacity": "1→0", "nextSceneReadyAtMs": 1500}}
+        {"startMs": 0, "endMs": 650, "state": "map-reveal", "changes": {"mapOpacity": "0→1", "mapScale": "1.04→1.00", "mapTranslateYPx": "10→0", "mistOpacity": "0→0.35"}},
+        {"startMs": 300, "endMs": 1500, "state": "route-draw", "changes": {"routeProgress": "0→1", "routeOpacity": "0→1"}},
+        {"startMs": 720, "endMs": 2900, "state": "marker-travel", "changes": {"markerPathT": "0→1", "markerRotation": "沿切线平滑跟随", "markerBob": "±3px"}},
+        {"startMs": 0, "endMs": 3600, "state": "tip-enter", "changes": {"tipOpacity": "从开始保持可见→随最后淡出", "tipTranslateYPx": "8→0"}},
+        {"startMs": 2300, "endMs": 3050, "state": "target-highlight", "changes": {"targetGlow": "0→1→0.65", "targetScale": "1→1.08→1"}},
+        {"startMs": 3200, "endMs": 3600, "state": "fade-out", "changes": {"mapAndOverlayOpacity": "1→0", "nextSceneReadyAtMs": 3600}}
       ],
       "easing": {"mapReveal": "cubic-bezier(0.22,0.8,0.28,1)", "route": "ease-out", "marker": "linear-path-with-ease-in-out-end", "highlight": "ease-out", "fade": "ease-in"}
     },
     "intraChapterSwitch": {
-      "durationMs": 900,
+      "durationMs": 3600,
       "timeline": [
-        {"startMs": 0, "endMs": 120, "state": "map-reveal", "changes": {"mapOpacity": "0→1", "mapScale": "1.02→1.00", "mapTranslateYPx": "4→0"}},
-        {"startMs": 80, "endMs": 330, "state": "route-draw", "changes": {"routeProgress": "0→1", "routeOpacity": "0→1"}},
-        {"startMs": 180, "endMs": 650, "state": "marker-travel", "changes": {"markerPathT": "0→1", "markerBob": "±2px"}},
-        {"startMs": 380, "endMs": 680, "state": "tip-enter", "changes": {"tipOpacity": "0→1→0", "tipTranslateYPx": "5→0→-2"}},
-        {"startMs": 520, "endMs": 760, "state": "target-highlight", "changes": {"targetGlow": "0→1→0.6", "targetScale": "1→1.05→1"}},
-        {"startMs": 760, "endMs": 900, "state": "fade-out", "changes": {"mapAndOverlayOpacity": "1→0", "nextSceneReadyAtMs": 900}}
+        {"startMs": 0, "endMs": 650, "state": "map-reveal", "changes": {"mapOpacity": "0→1", "mapScale": "1.04→1.00", "mapTranslateYPx": "10→0"}},
+        {"startMs": 300, "endMs": 1500, "state": "route-draw", "changes": {"routeProgress": "0→1", "routeOpacity": "0→1"}},
+        {"startMs": 720, "endMs": 2900, "state": "marker-travel", "changes": {"markerPathT": "0→1", "markerBob": "±3px"}},
+        {"startMs": 0, "endMs": 3600, "state": "tip-enter", "changes": {"tipOpacity": "从开始保持可见→随最后淡出", "tipTranslateYPx": "8→0"}},
+        {"startMs": 2300, "endMs": 3050, "state": "target-highlight", "changes": {"targetGlow": "0→1→0.6", "targetScale": "1→1.08→1"}},
+        {"startMs": 3200, "endMs": 3600, "state": "fade-out", "changes": {"mapAndOverlayOpacity": "1→0", "nextSceneReadyAtMs": 3600}}
       ],
       "easing": {"mapReveal": "ease-out", "route": "ease-out", "marker": "linear-path", "highlight": "ease-out", "fade": "ease-in"}
     }
   },
   "stateMachine": {
     "states": [
-      {"id": "hidden", "enter": {"mapOpacity": 0, "routeProgress": 0, "markerVisible": false, "targetGlow": 0, "tipVisible": false}},
+      {"id": "hidden", "enter": {"mapOpacity": 0, "routeProgress": 0, "markerVisible": false, "targetGlow": 0, "tipVisible": true}},
       {"id": "map-reveal", "enter": {"markerVisible": false}, "leave": {"mapOpacity": 1}},
       {"id": "route-draw", "enter": {"routeProgress": 0, "routeOpacity": 1}, "leave": {"routeProgress": 1}},
       {"id": "marker-travel", "enter": {"markerVisible": true, "markerPathT": 0}, "leave": {"markerPathT": 1}},
       {"id": "target-reached", "enter": {"targetGlow": 1, "markerScale": 1.08}, "leave": {"targetGlow": 0.65, "markerScale": 1}},
-      {"id": "fade-out", "enter": {"tipVisible": false}, "leave": {"mapOpacity": 0, "markerVisible": false, "routeOpacity": 0}},
-      {"id": "skipped", "enter": {"routeProgress": 1, "markerPathT": 1, "targetGlow": 1, "tipVisible": false}, "transitionOutMs": 120}
+      {"id": "fade-out", "enter": {"tipVisible": true}, "leave": {"mapOpacity": 0, "markerVisible": false, "routeOpacity": 0, "tipVisible": false}}
     ],
     "defaultOrder": ["hidden", "map-reveal", "route-draw", "marker-travel", "target-reached", "fade-out"]
   },
-  "skipInput": {
-    "accepted": ["pointerdown", "touchstart", "Space"],
-    "behavior": "任意活动状态触发后，将路线和鹅头吸附到目标，保持目标高亮并在120ms内淡出进入下一场景",
-    "debounceMs": 160
+  "refreshInput": {
+    "accepted": ["pointerdown", "Space"],
+    "behavior": "保留当前地图转场进度并轮换Tip；不快进、不跳过"
   },
   "qaContract": {
     "mapBaseChecks": ["1280x720", "无文字", "无路线", "无节点圆环", "无进度点", "无Tip", "无UI", "八个区域可在25%缩放下识别"],
     "markerChecks": ["256x256 RGBA", "四角透明", "无绿色抠像残边", "只含莞小鹅胸前勋章", "无外部文字、Logo、水印、UI"],
-    "runtimeMustKeepSeparate": ["route", "node highlight", "marker motion", "mist motion", "tip card", "skip input"]
+    "runtimeMustKeepSeparate": ["route", "node highlight", "marker motion", "mist motion", "tip card"]
   },
   "negativePrompt": ["写实地图", "卫星地图", "真实导航界面", "复杂道路文字", "人物", "动物", "完整角色", "文字", "乱码", "品牌Logo", "校徽", "水印", "UI", "按钮", "输入框", "登录框", "CG海报", "分镜", "拼贴", "分屏", "边框", "3D游戏界面", "像素画", "过度写实", "过度暗黑", "过度拥挤", "路线被建筑遮挡", "重要区域贴边", "地图比例失衡"]
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { StealthLogic } from '../../src/core/StealthLogic.js';
+import { validateNavigationRoute } from '../../src/core/SceneLayout.js';
 
 /**
  * StealthLogic 烧鹅店潜行逻辑测试（对应 PRD §5 F6 + Task 3.5）
@@ -85,6 +86,181 @@ describe('StealthLogic 烧鹅店潜行逻辑', () => {
       logic.updateBoss(1.0); // 向左移动 92
       expect(logic.getBossPosition().x).toBeCloseTo(1148, 1);
     });
+
+    it('沿巡逻节点连续寻路，拐角处会消耗剩余移动距离并反向', () => {
+      const routeLogic = new StealthLogic({
+        canvasWidth: 1280,
+        canvasHeight: 720,
+        patrolSpeed: 100,
+        alertRate: 45,
+        alertDecay: 20,
+        alertMax: 100,
+        coverThreshold: 26,
+        patrolRoute: [
+          { x: 100, y: 440 },
+          { x: 300, y: 440 },
+          { x: 300, y: 520 },
+          { x: 380, y: 520 },
+        ],
+      });
+
+      expect(routeLogic.getBossPosition()).toMatchObject({ x: 100, y: 440, direction: 1 });
+      routeLogic.updateBoss(2.5);
+
+      // 先走完第一段 200px，再沿第二段向下走 50px，不能把剩余距离丢掉。
+      expect(routeLogic.getBossPosition().x).toBeCloseTo(300, 1);
+      expect(routeLogic.getBossPosition().y).toBeCloseTo(490, 1);
+
+      routeLogic.updateBoss(1.2);
+      // 走到末端后立即沿原路线反向，下一段应回到 x 方向。
+      expect(routeLogic.getBossPosition().x).toBeCloseTo(370, 1);
+      expect(routeLogic.getBossPosition().y).toBeCloseTo(520, 1);
+      expect(routeLogic.getBossPosition().direction).toBe(-1);
+    });
+
+    it('以老板碰撞半径扩张 solid 后拒绝穿过障碍的节点和线段', () => {
+      const obstacles = [{ id: 'counter', x: 200, y: 400, width: 120, height: 40 }];
+      const blocked = validateNavigationRoute(
+        [{ x: 100, y: 420 }, { x: 500, y: 420 }],
+        obstacles,
+        { radius: 18 },
+      );
+      const clear = validateNavigationRoute(
+        [{ x: 100, y: 360 }, { x: 500, y: 360 }],
+        obstacles,
+        { radius: 18 },
+      );
+
+      expect(blocked.valid).toBe(false);
+      expect(blocked.issues.some((issue) => issue.type === 'segment-through-solid')).toBe(true);
+      expect(clear.valid).toBe(true);
+    });
+
+    it('路线节点和老板碰撞半径在完整往返周期内保持合法', () => {
+      const obstacles = [
+        { id: 'counter', x: 200, y: 300, width: 100, height: 80 },
+        { id: 'table', x: 400, y: 460, width: 120, height: 40 },
+      ];
+      const route = [
+        { x: 100, y: 420 },
+        { x: 340, y: 420 },
+        { x: 340, y: 560 },
+        { x: 600, y: 560 },
+      ];
+      const routeCheck = validateNavigationRoute(route, obstacles, { radius: 18 });
+      expect(routeCheck.valid).toBe(true);
+
+      const routeLogic = new StealthLogic({
+        canvasWidth: 1280,
+        canvasHeight: 720,
+        patrolSpeed: 92,
+        alertRate: 45,
+        alertDecay: 20,
+        alertMax: 100,
+        coverThreshold: 26,
+        bossRadius: 18,
+        patrolRoute: route,
+        patrolObstacles: obstacles,
+      });
+      for (let frame = 0; frame < 900; frame += 1) {
+        routeLogic.updateBoss(1 / 60);
+        const position = routeLogic.getBossPosition();
+        expect(routeCheck.valid).toBe(true);
+        expect(position.x).toBeGreaterThanOrEqual(0);
+        expect(position.x).toBeLessThanOrEqual(1280);
+        expect(position.y).toBeGreaterThanOrEqual(0);
+        expect(position.y).toBeLessThanOrEqual(720);
+      }
+    });
+
+    it('大帧间隔跨越拐点仍保留真实方向，并支持被抓后的合法节点复位', () => {
+      const routeLogic = new StealthLogic({
+        canvasWidth: 1280,
+        canvasHeight: 720,
+        patrolSpeed: 100,
+        alertRate: 45,
+        alertDecay: 20,
+        alertMax: 100,
+        coverThreshold: 26,
+        bossRadius: 18,
+        patrolRoute: [
+          { x: 100, y: 440 },
+          { x: 300, y: 440 },
+          { x: 300, y: 540 },
+        ],
+      });
+
+      routeLogic.updateBoss(2.5);
+      expect(routeLogic.getBossPosition()).toMatchObject({ x: 300, y: 490, angle: Math.PI / 2 });
+      routeLogic.resetPatrol({ index: 1, travelDirection: -1 });
+      expect(routeLogic.getBossPosition()).toMatchObject({ x: 300, y: 440, direction: -1 });
+      routeLogic.updateBoss(0.2);
+      expect(routeLogic.getBossPosition().x).toBeLessThan(300);
+      expect(routeLogic.getBossPosition().angle).toBeCloseTo(Math.PI, 5);
+    });
+
+    it('上下拐角时手电筒仍跟随老板左右面向，而不是照向巡逻切线', () => {
+      const routeLogic = new StealthLogic({
+        canvasWidth: 1280,
+        canvasHeight: 720,
+        patrolSpeed: 100,
+        alertRate: 45,
+        alertDecay: 20,
+        alertMax: 100,
+        coverThreshold: 26,
+        patrolRoute: [
+          { x: 100, y: 440 },
+          { x: 300, y: 440 },
+          { x: 300, y: 540 },
+        ],
+      });
+
+      routeLogic.updateBoss(2.5);
+      const position = routeLogic.getBossPosition();
+
+      expect(position.angle).toBeCloseTo(Math.PI / 2, 5);
+      expect(position.direction).toBe(1);
+      expect(position.flashlightAngle).toBe(0);
+      expect(position.flashlightOrigin).toEqual({ x: 328, y: 470 });
+      expect(routeLogic.isInFlashlight(500, 490, { range: 220, halfAngle: 0.35 })).toBe(true);
+      expect(routeLogic.isInFlashlight(300, 650, { range: 220, halfAngle: 0.35 })).toBe(false);
+    });
+
+    it('没有巡逻路线时边界反向会同步手电筒朝向', () => {
+      logic._setBossState(1230, 1);
+      logic.updateBoss(0.2);
+
+      const position = logic.getBossPosition();
+      expect(position.direction).toBe(-1);
+      expect(position.angle).toBe(Math.PI);
+      expect(position.flashlightAngle).toBe(Math.PI);
+      expect(logic.isInFlashlight(1000, 400, { range: 240, halfAngle: 0.35 })).toBe(true);
+      expect(logic.isInFlashlight(1240, 400, { range: 240, halfAngle: 0.35 })).toBe(false);
+    });
+  });
+
+  describe('手电筒视野', () => {
+    it('只照亮老板朝向的光锥范围，而不是整片半圆', () => {
+      expect(logic.isInFlashlight(220, 400, { range: 240, halfAngle: 0.35 })).toBe(true);
+      expect(logic.isInFlashlight(220, 500, { range: 240, halfAngle: 0.35 })).toBe(false);
+    });
+
+    it('光锥被地图实体遮挡时不应继续发现玩家', () => {
+      const blockedLogic = new StealthLogic({
+        canvasWidth: 1280,
+        canvasHeight: 720,
+        patrolSpeed: 92,
+        alertRate: 45,
+        alertDecay: 20,
+        alertMax: 100,
+        coverThreshold: 26,
+        bossY: 400,
+        patrolObstacles: [{ x: 120, y: 380, width: 36, height: 48 }],
+      });
+      blockedLogic._setBossState(80, 1);
+
+      expect(blockedLogic.isInFlashlight(240, 400, { range: 240, halfAngle: 0.35 })).toBe(false);
+    });
   });
 
   // ==================== 警觉度系统 ====================
@@ -138,11 +314,44 @@ describe('StealthLogic 烧鹅店潜行逻辑', () => {
       logic.updateAlert(0.5, false, false); // 降 10
       expect(logic.getAlert()).toBeCloseTo(35, 1);
     });
+
+    it('保存并恢复老板巡逻、警觉度和路线游标', () => {
+      logic.updateBoss(1.37);
+      logic.updateAlert(0.8, true, false);
+      const snapshot = logic.getSaveState();
+
+      const restored = new StealthLogic({
+        canvasWidth: 1280,
+        canvasHeight: 720,
+        patrolSpeed: 92,
+        alertRate: 45,
+        alertDecay: 20,
+        alertMax: 100,
+        coverThreshold: 26,
+        bossY: 400,
+        gooseTable: { x: 640, y: 200, radius: 30 },
+      });
+      restored.restoreSaveState(snapshot);
+
+      expect(restored.getSaveState()).toEqual(snapshot);
+    });
   });
 
   // ==================== 被抓触发 ====================
 
   describe('被抓触发', () => {
+    it('手电筒照中且未藏好时立即满警觉并触发被抓', () => {
+      expect(logic.markCaughtIfVisible(true, false)).toBe(true);
+      expect(logic.getAlert()).toBe(100);
+      expect(logic.isCaught()).toBe(true);
+    });
+
+    it('手电筒照中但处于掩体时不触发即时抓捕', () => {
+      expect(logic.markCaughtIfVisible(true, true)).toBe(false);
+      expect(logic.getAlert()).toBe(0);
+      expect(logic.isCaught()).toBe(false);
+    });
+
     it('警觉度未满时不算被抓', () => {
       logic.updateAlert(1.0, true, false); // 45
       expect(logic.isCaught()).toBe(false);

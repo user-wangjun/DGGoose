@@ -1,5 +1,6 @@
 import { CHAPTERS } from '../data/chapters.js';
 import { BADGES, BADGE_TYPE } from '../data/badges.js';
+import { getBadgeAssetUrl } from '../data/badgeAssets.js';
 import { Button } from './Button.js';
 
 /** 章节节点三态枚举 */
@@ -9,12 +10,51 @@ const NodeState = {
   COMPLETED: 'completed',
 };
 
-/** 各状态对应的视觉表现（图标/边框色/背景色/文字色） */
+/** 各状态对应的文字与交互表现；节点主体使用对应的正式 PNG。 */
 const STATE_VISUALS = {
-  [NodeState.LOCKED]: { icon: '🔒', borderColor: '#4b5563', bgColor: '#1f2937', textColor: '#6b7280' },
-  [NodeState.CURRENT]: { icon: '⭐', borderColor: '#fbbf24', bgColor: '#1f2937', textColor: '#fbbf24' },
-  [NodeState.COMPLETED]: { icon: '✓', borderColor: '#34d399', bgColor: '#065f46', textColor: '#34d399' },
+  [NodeState.LOCKED]: { textColor: '#8f8375' },
+  [NodeState.CURRENT]: { textColor: '#f7c96f' },
+  [NodeState.COMPLETED]: { textColor: '#f5df9e' },
 };
+
+/** 7 个章节 × 3 状态的正式节点图；overview 图仅是制作参考表，不作为运行时底图。 */
+const CHAPTER_NODE_ASSETS = Object.freeze({
+  prologue: Object.freeze({
+    locked: new URL('../../assets/ui/chapter-map/chapter_prologue-toy-factory_locked.png', import.meta.url).href,
+    current: new URL('../../assets/ui/chapter-map/chapter_prologue-toy-factory_current.png', import.meta.url).href,
+    completed: new URL('../../assets/ui/chapter-map/chapter_prologue-toy-factory_completed.png', import.meta.url).href,
+  }),
+  ch1: Object.freeze({
+    locked: new URL('../../assets/ui/chapter-map/chapter_ch1-basketball-gym_locked.png', import.meta.url).href,
+    current: new URL('../../assets/ui/chapter-map/chapter_ch1-basketball-gym_current.png', import.meta.url).href,
+    completed: new URL('../../assets/ui/chapter-map/chapter_ch1-basketball-gym_completed.png', import.meta.url).href,
+  }),
+  ch2: Object.freeze({
+    locked: new URL('../../assets/ui/chapter-map/chapter_ch2-lychee-orchard_locked.png', import.meta.url).href,
+    current: new URL('../../assets/ui/chapter-map/chapter_ch2-lychee-orchard_current.png', import.meta.url).href,
+    completed: new URL('../../assets/ui/chapter-map/chapter_ch2-lychee-orchard_completed.png', import.meta.url).href,
+  }),
+  ch3: Object.freeze({
+    locked: new URL('../../assets/ui/chapter-map/chapter_ch3-roast-goose-shop_locked.png', import.meta.url).href,
+    current: new URL('../../assets/ui/chapter-map/chapter_ch3-roast-goose-shop_current.png', import.meta.url).href,
+    completed: new URL('../../assets/ui/chapter-map/chapter_ch3-roast-goose-shop_completed.png', import.meta.url).href,
+  }),
+  ch4: Object.freeze({
+    locked: new URL('../../assets/ui/chapter-map/chapter_ch4-industrial-park_locked.png', import.meta.url).href,
+    current: new URL('../../assets/ui/chapter-map/chapter_ch4-industrial-park_current.png', import.meta.url).href,
+    completed: new URL('../../assets/ui/chapter-map/chapter_ch4-industrial-park_completed.png', import.meta.url).href,
+  }),
+  ch5: Object.freeze({
+    locked: new URL('../../assets/ui/chapter-map/chapter_ch5-dgut-campus_locked.png', import.meta.url).href,
+    current: new URL('../../assets/ui/chapter-map/chapter_ch5-dgut-campus_current.png', import.meta.url).href,
+    completed: new URL('../../assets/ui/chapter-map/chapter_ch5-dgut-campus_completed.png', import.meta.url).href,
+  }),
+  finale: Object.freeze({
+    locked: new URL('../../assets/ui/chapter-map/chapter_finale-songshan-lake_locked.png', import.meta.url).href,
+    current: new URL('../../assets/ui/chapter-map/chapter_finale-songshan-lake_current.png', import.meta.url).href,
+    completed: new URL('../../assets/ui/chapter-map/chapter_finale-songshan-lake_completed.png', import.meta.url).href,
+  }),
+});
 
 /**
  * 章节地图 UI 组件（对应 PRD §5 F4）
@@ -210,7 +250,7 @@ export class ChapterMap {
     const badgeText = badgeUnlocked && badgeInfo
       ? `${badgeInfo.name}（已获得）`
       : '未获得';
-    infoList.appendChild(this._createInfoRow('印记', badgeText));
+    infoList.appendChild(this._createBadgeInfoRow('印记', chapter.badge, badgeUnlocked, badgeText));
 
     // 抉择状态行（M5 §5.7）：仅对有 choice 字段的章节展示
     if (chapter.choice) {
@@ -225,7 +265,7 @@ export class ChapterMap {
       const endingBadgeText = endingBadgeUnlocked && endingBadgeInfo
         ? `${endingBadgeInfo.name}（已获得）`
         : '未获得';
-      infoList.appendChild(this._createInfoRow('结局印记', endingBadgeText));
+      infoList.appendChild(this._createBadgeInfoRow('结局印记', endingBadgeId, endingBadgeUnlocked, endingBadgeText));
     }
 
     this.infoCardElement.appendChild(infoList);
@@ -398,7 +438,10 @@ export class ChapterMap {
       }
       [data-chapter-map] [data-chapter-node][data-selected="true"] [data-chapter-icon] {
         transform: scale(1.1);
-        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.4);
+        filter: drop-shadow(0 0 5px rgba(255, 207, 105, 0.8));
+      }
+      [data-chapter-map] [data-chapter-node][data-state="locked"] [data-chapter-icon] {
+        filter: saturate(0.82);
       }
     `;
     document.head.appendChild(style);
@@ -415,7 +458,7 @@ export class ChapterMap {
     timeline.setAttribute('data-chapter-timeline', '');
     timeline.style.cssText = `
       display: flex; align-items: flex-start; justify-content: center;
-      flex-wrap: nowrap; gap: 0; width: 100%; max-width: 1100px;
+      flex-wrap: nowrap; gap: 0; width: 100%; max-width: 1320px;
     `;
     return timeline;
   }
@@ -437,38 +480,55 @@ export class ChapterMap {
     node.setAttribute('data-state', state);
     node.style.cssText = `
       display: flex; flex-direction: column; align-items: center;
-      cursor: ${isUnlocked ? 'pointer' : 'default'};
+      cursor: ${isUnlocked ? 'pointer' : 'not-allowed'};
       flex-shrink: 0; width: 110px;
+      width: clamp(90px, 9vw, 136px);
+      min-width: 0;
+      user-select: none;
     `;
+    node.setAttribute('role', 'button');
+    node.setAttribute('tabindex', '0');
+    node.setAttribute('data-locked', String(!isUnlocked));
 
-    // 圆形图标
+    // 正式章节节点图；透明留白仍保留，保证图片和节点热区严格同位。
     const icon = document.createElement('div');
     icon.setAttribute('data-chapter-icon', '');
     icon.style.cssText = `
-      width: 56px; height: 56px; border-radius: 50%;
+      width: clamp(68px, 8vw, 112px); height: clamp(68px, 8vw, 112px);
       display: flex; align-items: center; justify-content: center;
-      font-size: 24px; border: 3px solid ${visual.borderColor};
-      background: ${visual.bgColor}; color: ${visual.textColor};
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      flex-shrink: 0; transition: transform 0.2s ease, filter 0.2s ease;
     `;
-    icon.textContent = visual.icon;
+    const image = document.createElement('img');
+    image.setAttribute('data-chapter-node-image', '');
+    image.src = CHAPTER_NODE_ASSETS[chapter.id][state];
+    image.alt = `${chapter.name}（${state === NodeState.LOCKED ? '锁定' : state === NodeState.COMPLETED ? '已完成' : '当前'}）`;
+    image.draggable = false;
+    image.decoding = 'async';
+    image.style.cssText = 'display: block; width: 100%; height: 100%; object-fit: contain;';
+    icon.appendChild(image);
     node.appendChild(icon);
 
     // 章节名
     const label = document.createElement('div');
     label.setAttribute('data-chapter-label', '');
     label.style.cssText = `
-      margin-top: 10px; font-size: 12px; text-align: center;
-      color: ${isUnlocked ? '#d1d5db' : '#6b7280'};
-      max-width: 106px; line-height: 1.4;
+      display: flex; align-items: flex-start; justify-content: center;
+      width: 100%; min-height: 2.8em; margin-top: 4px;
+      font-size: clamp(11px, 1.25vw, 15px); text-align: center;
+      color: ${visual.textColor};
+      line-height: 1.35; overflow-wrap: anywhere;
     `;
     label.textContent = chapter.name;
     node.appendChild(label);
 
-    // 已解锁节点注册点击事件
-    if (isUnlocked) {
-      node.addEventListener('click', () => this._handleNodeClick(chapter.id));
-    }
+    // 热区覆盖整个节点图片与名称；锁定节点点击后仍由现有 Toast 规则提示。
+    node.addEventListener('click', () => this._handleNodeClick(chapter.id));
+    node.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this._handleNodeClick(chapter.id);
+      }
+    });
 
     return node;
   }
@@ -486,7 +546,7 @@ export class ChapterMap {
     connector.setAttribute('data-chapter-connector', '');
     connector.setAttribute('data-active', String(isActive));
     connector.style.cssText = `
-      flex: 1; min-width: 20px; height: 3px; margin-top: 26px;
+      flex: 1; min-width: 14px; height: clamp(2px, 0.25vw, 4px); margin-top: clamp(34px, 4vw, 54px);
       background: ${isActive ? '#34d399' : '#374151'};
       border-radius: 2px; transition: background 0.3s ease;
     `;
@@ -533,6 +593,45 @@ export class ChapterMap {
     valueEl.style.cssText = 'color: #e5e7eb;';
 
     row.appendChild(labelEl);
+    row.appendChild(valueEl);
+    return row;
+  }
+
+  /**
+   * 创建带正式徽章缩略图的信息行，供章节回看时核验收集状态。
+   * @param {string} label - 标签
+   * @param {string} badgeId - 印记 id
+   * @param {boolean} unlocked - 是否已获得
+   * @param {string} value - 状态文字
+   * @returns {HTMLElement}
+   * @private
+   */
+  _createBadgeInfoRow(label, badgeId, unlocked, value) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display: flex; gap: 12px; align-items: center; min-height: 48px;';
+
+    const labelEl = document.createElement('span');
+    labelEl.textContent = label;
+    labelEl.style.cssText = 'flex-shrink: 0; width: 72px; color: #9ca3af;';
+    row.appendChild(labelEl);
+
+    const src = getBadgeAssetUrl(badgeId, unlocked);
+    if (src) {
+      const image = document.createElement('img');
+      image.setAttribute('data-chapter-badge-image', badgeId);
+      image.src = src;
+      image.alt = unlocked ? value : '未获得印记';
+      image.decoding = 'async';
+      image.style.cssText = `
+        width: 48px; height: 48px; object-fit: contain; flex-shrink: 0;
+        filter: drop-shadow(0 0 8px ${unlocked ? 'rgba(255, 205, 108, 0.45)' : 'rgba(255,255,255,0.08)'});
+      `;
+      row.appendChild(image);
+    }
+
+    const valueEl = document.createElement('span');
+    valueEl.textContent = value;
+    valueEl.style.cssText = `color: ${unlocked ? '#fef3c7' : '#e5e7eb'};`;
     row.appendChild(valueEl);
     return row;
   }
