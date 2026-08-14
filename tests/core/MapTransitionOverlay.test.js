@@ -39,6 +39,42 @@ describe('MapTransitionOverlay 城市地图转场', () => {
     expect(MAP_TRANSITION_ASSETS.map).not.toBe('assets/transition/city_map_base.png');
   });
 
+  it('转场期间创建覆盖整个视口的遮罩，避免超宽横屏露出底层 UI', () => {
+    const context = { scale: vi.fn() };
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context);
+    const transition = new MapTransitionOverlay({ routeData });
+    const gameCanvas = document.createElement('canvas');
+    gameCanvas.width = 1280;
+    gameCanvas.height = 720;
+    document.body.appendChild(gameCanvas);
+
+    transition.mount(gameCanvas);
+
+    const backdrop = document.querySelector('[data-map-transition-backdrop]');
+    expect(backdrop).not.toBeNull();
+    expect(backdrop.style.position).toBe('fixed');
+    expect(backdrop.style.inset).toMatch(/^0(?:px)?$/);
+    expect(backdrop.style.zIndex).toBe('19');
+    expect(backdrop.style.display).toBe('none');
+
+    transition.start({ toName: 'ch5' });
+    expect(backdrop.style.display).toBe('block');
+
+    transition.update(3.6);
+    expect(backdrop.style.display).toBe('none');
+
+    transition.start({ toName: 'ch5' });
+    expect(backdrop.style.display).toBe('block');
+
+    transition.stop();
+    expect(backdrop.style.display).toBe('none');
+
+    transition.destroy();
+    expect(document.querySelector('[data-map-transition-backdrop]')).toBeNull();
+    gameCanvas.remove();
+    getContext.mockRestore();
+  });
+
   it('按时间线推进地图、路线、胸前徽章和 Tip，并在结束时停用', () => {
     const transition = new MapTransitionOverlay({ routeData });
 

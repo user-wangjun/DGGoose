@@ -133,6 +133,8 @@ export class MapTransitionOverlay {
     this.overlayContext = null;
     /** @type {HTMLCanvasElement|null} 游戏主画布，用于同步 CSS 适配尺寸 */
     this.gameCanvas = null;
+    /** @type {HTMLDivElement|null} 遮挡画布两侧底层 UI 的全屏背板 */
+    this.backdrop = null;
     /** @type {Window|null} 接收重播输入的窗口对象 */
     this.inputTarget = null;
 
@@ -157,6 +159,16 @@ export class MapTransitionOverlay {
     this.overlayCanvas.setAttribute('data-map-transition-canvas', '');
     this.overlayCanvas.width = gameCanvas.width;
     this.overlayCanvas.height = gameCanvas.height;
+    this.backdrop = document.createElement('div');
+    this.backdrop.setAttribute('data-map-transition-backdrop', '');
+    this.backdrop.style.cssText = `
+      position: fixed;
+      inset: 0;
+      display: none;
+      pointer-events: none;
+      z-index: 19;
+      background: #1a1a2e;
+    `;
     this.overlayCanvas.style.cssText = `
       display: block;
       position: absolute;
@@ -170,7 +182,9 @@ export class MapTransitionOverlay {
     this.overlayContext = this.overlayCanvas.getContext('2d');
     const dpr = Math.max(1, gameCanvas.width / GAME.WIDTH);
     this.overlayContext?.scale(dpr, dpr);
+    container.appendChild(this.backdrop);
     container.appendChild(this.overlayCanvas);
+    this._setBackdropVisible(this.active);
     this._syncOverlayLayout();
     this.inputTarget = typeof window !== 'undefined' ? window : null;
     this.inputTarget?.addEventListener('keydown', this._onRefreshKeyDown, true);
@@ -181,12 +195,16 @@ export class MapTransitionOverlay {
   /** 销毁独立转场画布，供页面重建或测试清理使用。 */
   destroy() {
     this.stop();
+    if (this.backdrop?.parentNode) {
+      this.backdrop.parentNode.removeChild(this.backdrop);
+    }
     if (this.overlayCanvas?.parentNode) {
       this.overlayCanvas.parentNode.removeChild(this.overlayCanvas);
     }
     this.overlayCanvas = null;
     this.overlayContext = null;
     this.gameCanvas = null;
+    this.backdrop = null;
     this.inputTarget?.removeEventListener('keydown', this._onRefreshKeyDown, true);
     this.inputTarget?.removeEventListener('pointerdown', this._onRefreshPointerDown, true);
     this.inputTarget = null;
@@ -242,6 +260,7 @@ export class MapTransitionOverlay {
     this.targetNodeId = targetNodeId;
     this.refreshCount = 0;
     this.tip = this._selectTip(targetNodeId, this.refreshCount);
+    this._setBackdropVisible(true);
     return true;
   }
 
@@ -249,6 +268,7 @@ export class MapTransitionOverlay {
   stop() {
     this.active = false;
     this.elapsedMs = TIMELINE.durationMs;
+    this._setBackdropVisible(false);
   }
 
   /**
@@ -300,6 +320,7 @@ export class MapTransitionOverlay {
     this.elapsedMs = Math.min(TIMELINE.durationMs, this.elapsedMs + safeDelta * 1000);
     if (this.elapsedMs >= TIMELINE.durationMs) {
       this.active = false;
+      this._setBackdropVisible(false);
     }
   }
 
@@ -390,6 +411,12 @@ export class MapTransitionOverlay {
     if (!this.overlayCanvas || !this.gameCanvas) return;
     this.overlayCanvas.style.width = this.gameCanvas.style.width;
     this.overlayCanvas.style.height = this.gameCanvas.style.height;
+  }
+
+  /** @private */
+  _setBackdropVisible(visible) {
+    if (!this.backdrop) return;
+    this.backdrop.style.display = visible ? 'block' : 'none';
   }
 
   /** @private */
