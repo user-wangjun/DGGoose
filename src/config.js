@@ -146,8 +146,6 @@ export const CHAPTER_PRELOAD = {
   ],
   ch1: [
     ...SCENE_OBJECT_PRELOAD.ch1,
-    { type: 'image', url: BASKETBALL_SCENE_BACKGROUND_URL },
-    { type: 'image', url: BASKETBALL_SHOOTING_BACKGROUND_URL },
     { type: 'audio', url: 'assets/audio/bgm_basketball.mp3' },
     { type: 'audio', url: 'assets/audio/sfx_goal.wav' },
     { type: 'audio', url: 'assets/audio/sfx_miss.wav' },
@@ -160,7 +158,6 @@ export const CHAPTER_PRELOAD = {
   ],
   ch3: [
     ...SCENE_OBJECT_PRELOAD.ch3,
-    { type: 'image', url: STEALTH_BACKGROUND_URL },
     { type: 'audio', url: 'assets/audio/bgm_goose.mp3' },
     { type: 'audio', url: 'assets/audio/sfx_caught.wav' },
     { type: 'audio', url: 'assets/audio/sfx_steal.wav' },

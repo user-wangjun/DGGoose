@@ -179,6 +179,7 @@ export class BasketballScene {
     /** 投篮阶段使用的移除静态右侧篮架背景，由 Canvas 绘制活动侧视篮筐。 */
     this.shootingBackgroundImage = null;
     this.backgroundLoadPromise = null;
+    this.shootingBackgroundLoadPromise = null;
     this.objectImages = new Map();
     this.objectAssetsPromise = null;
     /** FPS 提供函数（供粒子系统降级判断） */
@@ -274,6 +275,8 @@ export class BasketballScene {
     this._createPhysics();
     this._loadAssets();
     this._loadSceneObjects();
+    this.gooseSprite?.load?.();
+    this.coachSprite?.load?.();
     this.particles = new ParticleSystem({ getFps: this.getFps });
     if (!this.goalBurstEffect) {
       this.goalBurstEffect = new GoalBurstEffect({ assetLoader: this.assetLoader });
@@ -527,6 +530,10 @@ export class BasketballScene {
     this.topdown?.destroy();
     this.topdown = null;
     this.topdownSpawn = null;
+    this.backgroundImage = null;
+    this.shootingBackgroundImage = null;
+    this.backgroundLoadPromise = null;
+    this.shootingBackgroundLoadPromise = null;
     this.objectAssetsPromise = null;
     this.objectImages = new Map();
     this.animTime = 0;
@@ -607,21 +614,29 @@ export class BasketballScene {
   _loadAssets() {
     if (this.backgroundLoadPromise) return this.backgroundLoadPromise;
 
-    const standardBackground = this._loadImage(BASKETBALL_SCENE_BACKGROUND_URL)
+    this.backgroundLoadPromise = this._loadImage(BASKETBALL_SCENE_BACKGROUND_URL)
       .then((image) => {
         this.backgroundImage = image;
-      });
-
-    const shootingBackground = this._loadImage(BASKETBALL_SHOOTING_BACKGROUND_URL)
-      .then((image) => {
-        this.shootingBackgroundImage = image;
-      });
-
-    this.backgroundLoadPromise = Promise.all([standardBackground, shootingBackground]).catch(() => {
-      // 保留正式球馆背景的纯色兜底，资源异常不阻断投篮玩法。
-    });
+        return image;
+      })
+      .catch(() => null);
 
     return this.backgroundLoadPromise;
+  }
+
+  /** 投篮玩法的变体背景按需加载；加载期间继续使用标准球馆图。 */
+  _loadShootingBackground() {
+    if (this.shootingBackgroundImage) return Promise.resolve(this.shootingBackgroundImage);
+    if (this.shootingBackgroundLoadPromise) return this.shootingBackgroundLoadPromise;
+
+    this.shootingBackgroundLoadPromise = this._loadImage(BASKETBALL_SHOOTING_BACKGROUND_URL)
+      .then((image) => {
+        this.shootingBackgroundImage = image;
+        return image;
+      })
+      .catch(() => null);
+
+    return this.shootingBackgroundLoadPromise;
   }
 
   _loadSceneObjects() {
@@ -829,6 +844,8 @@ export class BasketballScene {
 
   /** 背景准备完成后真正开始投篮，保证小游戏首帧就有正式球馆画面。 */
   _enterPlaying() {
+    // 投篮专用背景只在真正进入小游戏时加载，避免地图阶段同时解码两张大图。
+    this._loadShootingBackground();
     this.phase = 'playing';
     this.blumgiMode = true;
     this._configureBlumgiLevel(0);

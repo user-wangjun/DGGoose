@@ -68,11 +68,11 @@ export class GooseSprite extends FrameActionSprite {
     this.cinematicLoadPromise = null;
   }
 
-  /** 预加载 core、独立动作组与过场姿态。 */
-  async load() {
+  /** 预加载移动核心图集与过场姿态，其余动作在真正触发时按需加载。 */
+  async load(options = {}) {
     if (this.cinematicLoadPromise) return this.cinematicLoadPromise;
 
-    const spriteLoadPromise = super.load();
+    const spriteLoadPromise = super.load(['idle', 'walk', 'run'], options);
     this.cinematicLoadPromise = Promise.all([
       spriteLoadPromise,
       ...Object.entries(GXE_CINEMATIC_SPECS).map(async ([name, spec]) => {

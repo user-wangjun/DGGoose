@@ -90,6 +90,9 @@ export class IndustrialScene {
     this.backgroundImage = null;
     this.backgroundPromise = this._loadBackground();
     this._loadSceneObjects();
+    this.gooseSprite?.load?.();
+    this.engineerSprite?.load?.();
+    this.industrialWorkerSprite?.load?.();
 
     this.player?.setPosition(PLAYER_START.x, PLAYER_START.y);
     this.toast = new Toast({ container: this.container, duration: 2200 });
@@ -267,6 +270,8 @@ export class IndustrialScene {
     this.toast?.destroy();
     this.toast = null;
     this._hideChoiceOverlay();
+    this.backgroundImage = null;
+    this.backgroundPromise = null;
     this.objectAssetsPromise = null;
     this.objectImages = new Map();
     this.dialogueBox?.hide();

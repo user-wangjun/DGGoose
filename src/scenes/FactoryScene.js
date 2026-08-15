@@ -141,6 +141,7 @@ export class FactoryScene {
 
     this._loadAssets();
     this._loadSceneObjects();
+    this.gooseSprite?.load?.();
 
     // 初始化奔跑尘土粒子系统
     this.particles = new ParticleSystem({ getFps: this.getFps });

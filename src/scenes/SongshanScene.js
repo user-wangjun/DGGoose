@@ -112,6 +112,7 @@ export class SongshanScene {
     this.endingId = null;
     this._loadBackground();
     this._loadSceneObjects();
+    this.gooseSprite?.load?.();
     this.gooseSprite?.playAction('sit', { facing: 1, hold: true, restart: true });
     this._initParticles();
     this.effectParticles = new ParticleSystem({ getFps: this.getFps });
@@ -217,6 +218,8 @@ export class SongshanScene {
       this.effectParticles = null;
     }
     this.gooseSprite?.clearAction();
+    this.backgroundImage = null;
+    this.backgroundLoadPromise = null;
     this.objectAssetsPromise = null;
     this.objectImages = new Map();
     this.phase = 'idle';

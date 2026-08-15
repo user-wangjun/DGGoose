@@ -105,6 +105,7 @@ describe('荔枝园俯视流程', () => {
     expect(ctx.drawImage).toHaveBeenLastCalledWith(closedBackground, 0, 0, 1280, 720);
 
     scene.exitOpen = true;
+    await scene._loadOpenBackground();
     scene._drawMap(ctx);
     expect(ctx.drawImage).toHaveBeenLastCalledWith(openBackground, 0, 0, 1280, 720);
     scene.onExit();

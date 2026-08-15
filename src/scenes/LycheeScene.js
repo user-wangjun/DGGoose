@@ -77,6 +77,7 @@ export class LycheeScene {
     this.backgroundImage = null;
     this.openBackgroundImage = null;
     this.backgroundPromise = null;
+    this.openBackgroundLoadPromise = null;
     this.objectImages = new Map();
     this.objectAssetsPromise = null;
 
@@ -101,6 +102,8 @@ export class LycheeScene {
     this.player.setPosition(PLAYER_START.x, PLAYER_START.y);
     this._loadBackground();
     this._loadSceneObjects();
+    this.gooseSprite?.load?.();
+    this.farmerSprite?.load?.();
     this.toast = new Toast({ container: this.container, duration: 2200 });
     this.topdown = new TopdownController({
       player: this.player,
@@ -263,6 +266,10 @@ export class LycheeScene {
     this.feedbackTimerId = null;
     this.topdown?.destroy();
     this.topdown = null;
+    this.backgroundImage = null;
+    this.openBackgroundImage = null;
+    this.backgroundPromise = null;
+    this.openBackgroundLoadPromise = null;
     this.objectAssetsPromise = null;
     this.objectImages = new Map();
     this.toast?.destroy();
@@ -376,6 +383,7 @@ export class LycheeScene {
   /** 栅栏打开后才启用出口目标。 */
   _onGateOpened() {
     if (this.phase !== 'gateOpening') return;
+    this._loadOpenBackground();
     this.phase = 'exitReady';
     this.exitOpen = true;
     this.topdown.setMap({ obstacles: this._getObstacles() });
@@ -634,16 +642,27 @@ export class LycheeScene {
   _loadBackground() {
     if (this.backgroundPromise) return this.backgroundPromise;
 
-    const loadOrNull = (url) => Promise.resolve(this._loadImage(url)).catch(() => null);
-    this.backgroundPromise = Promise.all([
-      loadOrNull(LYCHEE_BACKGROUND_URL),
-      loadOrNull(LYCHEE_OPEN_BACKGROUND_URL),
-    ]).then(([closedImage, openImage]) => {
-      this.backgroundImage = closedImage;
-      this.openBackgroundImage = openImage;
-      return closedImage;
-    });
+    this.backgroundPromise = Promise.resolve(this._loadImage(LYCHEE_BACKGROUND_URL))
+      .catch(() => null)
+      .then((closedImage) => {
+        this.backgroundImage = closedImage;
+        return closedImage;
+      });
     return this.backgroundPromise;
+  }
+
+  /** 只有真正打开出口时才加载去除关门残影的第二张大底图。 */
+  _loadOpenBackground() {
+    if (this.openBackgroundImage) return Promise.resolve(this.openBackgroundImage);
+    if (this.openBackgroundLoadPromise) return this.openBackgroundLoadPromise;
+
+    this.openBackgroundLoadPromise = Promise.resolve(this._loadImage(LYCHEE_OPEN_BACKGROUND_URL))
+      .catch(() => null)
+      .then((openImage) => {
+        this.openBackgroundImage = openImage;
+        return openImage;
+      });
+    return this.openBackgroundLoadPromise;
   }
 
   /** 统一走资源加载器，测试环境没有 Image 时安全降级。 */

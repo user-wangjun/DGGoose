@@ -110,12 +110,10 @@ function main() {
   // 资源加载器（分章节预加载音频资源，主菜单背景由 MainMenuScene 按需加载）
   const assetLoader = new AssetLoader();
 
-  // 莞小鹅核心序列帧：菜单阶段提前加载，进入序章时避免回退到色块占位
+  // 莞小鹅和 NPC 资源由各自场景按需加载；首屏不解码整套动作图集，给正式场景背景留出移动端内存。
   const gooseSprite = new GooseSprite({ assetLoader });
-  gooseSprite.load();
   // 烧鹅店老板独立动作组：巡逻与抓捕不复用莞小鹅图集。
   const bossSprite = new BossSprite({ assetLoader });
-  bossSprite.load();
 
   // 场景 NPC 共用透明动作接入层；场景只绑定语义角色，不再各自绘制几何人物。
   const npcSprites = {
@@ -126,7 +124,6 @@ function main() {
     dgutSenior: new NpcSprite({ character: 'dgutSenior', assetLoader }),
     dgutSeniorFemale: new NpcSprite({ character: 'dgutSeniorFemale', assetLoader }),
   };
-  for (const sprite of Object.values(npcSprites)) sprite.load();
 
   // P0 音频清单一次性预加载；浏览器自动播放策略仍由首次用户交互解锁。
   assetLoader.loadManifest(AUDIO_MANIFEST).then((results) => {

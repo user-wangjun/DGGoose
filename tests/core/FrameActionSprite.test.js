@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { FrameActionSprite } from '../../src/core/FrameActionSprite.js';
 
 function createSpecs() {
@@ -36,6 +36,26 @@ function createSpecs() {
 }
 
 describe('FrameActionSprite', () => {
+  it('默认只加载待机图，动作第一次使用时再加载对应图集', async () => {
+    const assetLoader = {
+      loadImage: vi.fn(async (src) => ({ src })),
+    };
+    const sprite = new FrameActionSprite({
+      specs: createSpecs(),
+      defaultState: 'idle',
+      assetLoader,
+    });
+
+    await sprite.load();
+    expect(assetLoader.loadImage).toHaveBeenCalledTimes(1);
+    expect(assetLoader.loadImage).toHaveBeenCalledWith('idle.png');
+
+    sprite.playAction('action');
+    await sprite.loadState('action');
+    expect(assetLoader.loadImage).toHaveBeenCalledTimes(2);
+    expect(assetLoader.loadImage).toHaveBeenLastCalledWith('action.png');
+  });
+
   it('plays an independent action and returns to the core state', () => {
     const sprite = new FrameActionSprite({ specs: createSpecs(), defaultState: 'idle' });
 

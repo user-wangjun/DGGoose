@@ -84,6 +84,9 @@ export class CampusScene {
     this.transitioning = false;
     this._initLeaves();
     this._loadBackground();
+    this.gooseSprite?.load?.();
+    this.seniorSprite?.load?.();
+    this.seniorFemaleSprite?.load?.();
     this.player?.setPosition(PLAYER_START.x, PLAYER_START.y);
     this.toast = new Toast({ container: this.container, duration: 2600 });
     this.topdown = new TopdownController({

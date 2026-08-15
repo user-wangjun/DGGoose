@@ -88,6 +88,35 @@ describe('AssetLoader 资源加载', () => {
       expect(result).toBe(mockImage);
       globalThis.Image = originalImage;
     });
+
+    it('同一 URL 并发加载时共享同一个请求和图片实例', async () => {
+      const originalImage = globalThis.Image;
+      const imageInstances = [];
+      globalThis.Image = vi.fn(() => {
+        const image = { src: '', naturalWidth: 128, naturalHeight: 128 };
+        Object.defineProperty(image, 'src', {
+          set(value) {
+            this._src = value;
+            setTimeout(() => this.onload?.(), 0);
+          },
+          get() { return this._src; },
+        });
+        imageInstances.push(image);
+        return image;
+      });
+
+      try {
+        const firstRequest = loader.loadImage('shared.png');
+        const secondRequest = loader.loadImage('shared.png');
+
+        expect(secondRequest).toBe(firstRequest);
+        const [firstImage, secondImage] = await Promise.all([firstRequest, secondRequest]);
+        expect(firstImage).toBe(secondImage);
+        expect(imageInstances).toHaveLength(1);
+      } finally {
+        globalThis.Image = originalImage;
+      }
+    });
   });
 
   describe('loadManifest（批量预加载）', () => {

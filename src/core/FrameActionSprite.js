@@ -35,30 +35,72 @@ export class FrameActionSprite {
     this.ready = false;
     this.loadError = null;
     this.loadPromise = null;
+    this.stateLoadPromises = new Map();
+    this.failedStates = new Set();
   }
 
-  /** 预加载所有 core 与动作图集；单个动作失败时保留其它资源可用。 */
-  async load() {
-    if (this.loadPromise) return this.loadPromise;
+  /**
+   * 预加载指定动作图集；默认只加载待机图，其他动作在真正使用时再加载。
+   * 移动端不能在首屏同时解码所有角色动作，否则会挤压场景背景的解码内存。
+   * @param {string|string[]} [states]
+   * @param {{retry?: boolean}} [options]
+   */
+  load(states = [this.defaultState], { retry = false } = {}) {
+    const requestedStates = (Array.isArray(states) ? states : [states])
+      .filter((name) => typeof name === 'string' && this.specs[name]);
 
     this.loadPromise = Promise.all(
-      Object.entries(this.specs).map(async ([name, spec]) => {
-        try {
-          const image = this.assetLoader
-            ? await this.assetLoader.loadImage(spec.src)
-            : await this._loadImage(spec.src);
-          this.images.set(name, image);
-        } catch (error) {
-          this.loadError = this.loadError || error;
-          this.images.delete(name);
-        }
-      }),
+      requestedStates.map((name) => this.loadState(name, { retry })),
     ).then(() => {
       this.ready = true;
       return this;
     });
 
     return this.loadPromise;
+  }
+
+  /** 按需加载一个动作图集；同一动作的并发调用共享同一 Promise。 */
+  loadState(name, { retry = false } = {}) {
+    const spec = this.specs[name];
+    if (!spec) return Promise.resolve(null);
+    if (this.images.has(name)) return Promise.resolve(this.images.get(name));
+    if (retry) this.failedStates.delete(name);
+    if (this.failedStates.has(name)) return Promise.resolve(null);
+    if (this.stateLoadPromises.has(name)) return this.stateLoadPromises.get(name);
+
+    const promise = (async () => {
+      try {
+        const image = this.assetLoader
+          ? await this.assetLoader.loadImage(spec.src)
+          : await this._loadImage(spec.src);
+        this.images.set(name, image);
+        this.failedStates.delete(name);
+        return image;
+      } catch (error) {
+        this.loadError = this.loadError || error;
+        this.images.delete(name);
+        this.failedStates.add(name);
+        return null;
+      }
+    })();
+
+    this.stateLoadPromises.set(name, promise);
+    promise.then(
+      () => {
+        if (this.stateLoadPromises.get(name) === promise) this.stateLoadPromises.delete(name);
+      },
+      () => {
+        if (this.stateLoadPromises.get(name) === promise) this.stateLoadPromises.delete(name);
+      },
+    );
+    return promise;
+  }
+
+  /** 运行时切换状态时才请求对应图集，避免无意义的移动端解码。 */
+  _requestStateLoad(name) {
+    if (this.ready || this.assetLoader || this.loadPromise) {
+      this.loadState(name);
+    }
   }
 
   /**
@@ -79,6 +121,8 @@ export class FrameActionSprite {
   } = {}) {
     const animation = this.animations.get(name);
     if (!animation) return false;
+
+    this._requestStateLoad(name);
 
     if (!restart && this.currentAction === name) {
       this.actionHold = this.actionHold || hold;
@@ -149,6 +193,7 @@ export class FrameActionSprite {
     const animation = this.animations.get(nextState);
     if (actionResetCoreFrame) {
       this.currentState = nextState;
+      this._requestStateLoad(nextState);
       animation.play(nextState);
       animation.setFlip(facing < 0);
       // 保证动作结束这一帧就显示 core 的第 0 帧，而不是被同一帧 deltaTime 推进。
@@ -156,8 +201,10 @@ export class FrameActionSprite {
     }
     if (nextState !== this.currentState) {
       this.currentState = nextState;
+      this._requestStateLoad(nextState);
       animation.play(nextState);
     } else if (!animation.currentName) {
+      this._requestStateLoad(nextState);
       animation.play(nextState);
     }
     animation.setFlip(facing < 0);

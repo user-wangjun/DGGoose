@@ -158,6 +158,8 @@ export class StealthScene {
     this.animTime = 0;
 
     this._loadAssets();
+    this.gooseSprite?.load?.();
+    this.bossSprite?.load?.();
 
     // 初始化奔跑尘土粒子系统
     this.particles = new ParticleSystem({ getFps: this.getFps });
@@ -428,6 +430,8 @@ export class StealthScene {
     }
     this.gooseSprite?.clearAction();
     this.bossSprite?.clearAction();
+    this.assets = { background: null };
+    this.assetsPromise = null;
     this.logic = null;
     this.phase = 'idle';
     this.transitioning = false;
@@ -690,10 +694,12 @@ export class StealthScene {
   _loadAssets() {
     if (this.assetsPromise) return this.assetsPromise;
 
-    this.assetsPromise = this._loadImage(STEALTH_BACKGROUND_URL).then((image) => {
-      this.assets.background = image;
-      return image;
-    });
+    this.assetsPromise = this._loadImage(STEALTH_BACKGROUND_URL)
+      .then((image) => {
+        this.assets.background = image;
+        return image;
+      })
+      .catch(() => null);
 
     return this.assetsPromise;
   }
