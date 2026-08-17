@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>烧鹅店 · 俯瞰潜行 Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #fff8ec;
+      --muted: #c6b59d;
+      --gold: #f6c96b;
+      --panel: rgba(28, 19, 18, 0.86);
+      --line: rgba(255, 233, 194, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0e1218;
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+    }
+
+    .preview-shell {
+      position: relative;
+      width: min(1280px, 100vw);
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border: 1px solid rgba(255, 239, 207, 0.16);
+      border-radius: 18px;
+      background: #2a1715;
+      box-shadow: 0 28px 100px rgba(0, 0, 0, 0.5);
+    }
+
+    #sceneCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
+
+    .screen-ui {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+      backdrop-filter: blur(12px);
+    }
+
+    .title-card {
+      position: absolute;
+      top: 24px;
+      left: 28px;
+      width: 306px;
+      padding: 16px 18px 15px;
+    }
+
+    .eyebrow {
+      color: var(--gold);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+    }
+
+    h1 {
+      margin: 7px 0 5px;
+      color: var(--ink);
+      font-size: 23px;
+      letter-spacing: 0.03em;
+    }
+
+    .title-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .mode-card {
+      position: absolute;
+      top: 24px;
+      right: 28px;
+      min-width: 132px;
+      padding: 11px 14px;
+      color: var(--gold);
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+      text-align: right;
+    }
+
+    .mode-card span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 400;
+    }
+
+    .status-card {
+      position: absolute;
+      top: 106px;
+      right: 28px;
+      width: 182px;
+      padding: 12px 14px;
+    }
+
+    .status-label {
+      color: #a9957c;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+    }
+
+    .status-value {
+      margin-top: 4px;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .status-value strong { color: #9fe0a4; }
+
+    .help-card {
+      position: absolute;
+      left: 28px;
+      bottom: 24px;
+      max-width: 390px;
+      padding: 10px 14px;
+      color: #eadcc6;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .help-card b { color: var(--gold); }
+
+    .dialogue-card {
+      position: absolute;
+      left: 50%;
+      bottom: 24px;
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      width: min(650px, calc(100% - 56px));
+      padding: 11px 14px 11px 12px;
+      transform: translateX(-50%);
+      pointer-events: auto;
+    }
+
+    .dialogue-card[hidden] { display: none; }
+
+    .npc-avatar {
+      display: grid;
+      width: 58px;
+      height: 58px;
+      place-items: center;
+      border: 1px solid rgba(255, 211, 143, 0.4);
+      border-radius: 13px;
+      background: linear-gradient(145deg, #8f3826, #3b1e1c);
+      font-size: 30px;
+    }
+
+    .dialogue-speaker {
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .dialogue-text {
+      margin-top: 4px;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .dialogue-note {
+      margin-top: 3px;
+      color: #a9957c;
+      font-size: 10px;
+    }
+
+    .close-dialogue,
+    .demo-button {
+      border: 1px solid rgba(255, 224, 169, 0.28);
+      border-radius: 9px;
+      background: rgba(255, 215, 141, 0.1);
+      color: #ffe4ae;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .close-dialogue {
+      padding: 7px 10px;
+      font-size: 11px;
+    }
+
+    .demo-button {
+      position: absolute;
+      right: 28px;
+      bottom: 24px;
+      padding: 10px 14px;
+      pointer-events: auto;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .demo-button:hover,
+    .close-dialogue:hover { background: rgba(255, 215, 141, 0.2); }
+
+    .toast {
+      position: absolute;
+      top: 170px;
+      left: 50%;
+      padding: 8px 13px;
+      border: 1px solid rgba(255, 230, 187, 0.22);
+      border-radius: 999px;
+      background: rgba(25, 18, 18, 0.78);
+      color: #f7e7cc;
+      font-size: 12px;
+      opacity: 0;
+      transform: translate(-50%, -8px);
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    @media (max-width: 760px) {
+      .preview-shell { border-radius: 0; border: 0; }
+      .title-card { top: 12px; left: 12px; width: 245px; padding: 11px 13px; }
+      h1 { font-size: 17px; }
+      .mode-card { top: 12px; right: 12px; min-width: 92px; padding: 8px 10px; font-size: 11px; }
+      .status-card { top: 76px; right: 12px; width: 146px; padding: 8px 10px; }
+      .help-card { left: 12px; bottom: 12px; max-width: 270px; padding: 8px 10px; font-size: 10px; }
+      .demo-button { right: 12px; bottom: 12px; padding: 8px 10px; font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="preview-shell" aria-label="烧鹅店俯瞰潜行场景预览">
+    <canvas id="sceneCanvas" width="1280" height="720"></canvas>
+
+    <section class="screen-ui">
+      <div class="title-card card">
+        <div class="eyebrow">CAMERA PREVIEW · CHAPTER 3</div>
+        <h1>烧鹅店 · 俯瞰潜行</h1>
+        <p>画面上方是店内深处，下方是入口。人物、掩体和警戒区都落在同一张地面地图上。</p>
+      </div>
+
+      <div class="mode-card card">
+        俯瞰 2D<br />
+        <span>同一平面移动</span>
+      </div>
+
+      <div class="status-card card">
+        <div class="status-label">当前状态</div>
+        <div id="statusValue" class="status-value"><strong>未被发现</strong><br />靠近老板或烧鹅台可互动</div>
+      </div>
+
+      <div class="help-card card">
+        <b>操作：</b>WASD / 方向键移动 · 点击地面移动 · 点击老板查看“场景角色 → 对话”
+      </div>
+
+      <button id="demoButton" class="demo-button" type="button">查看对话示例</button>
+
+      <div id="toast" class="toast" role="status"></div>
+
+      <div id="dialogueCard" class="dialogue-card card" hidden>
+        <div class="npc-avatar" aria-hidden="true">👨‍🍳</div>
+        <div>
+          <div class="dialogue-speaker">烧鹅店老板 · 场景 NPC</div>
+          <div class="dialogue-text">“站住！你是来应聘烧鹅的，还是来应聘员工的？”</div>
+          <div class="dialogue-note">对话期间锁定移动，结束后回到俯瞰地图继续潜行。</div>
+        </div>
+        <button id="closeDialogue" class="close-dialogue" type="button">继续潜行</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- 使用相对路径和经典脚本，保证直接双击 file:///.../stealth-preview.html 也能运行。 -->
+  <script src="src/previews/stealth-topdown-preview.js"></script>
+</body>
+</html>

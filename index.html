@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <link rel="icon" href="data:," />
+  <title>鹅厂出逃记</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --safe-area-top: env(safe-area-inset-top, 0px);
+      --safe-area-right: env(safe-area-inset-right, 0px);
+      --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-area-left: env(safe-area-inset-left, 0px);
+      /*
+       * 由 ViewportAdapter 用 visualViewport 的实际尺寸同步；在脚本尚未运行或
+       * 旧浏览器不支持 visualViewport 时，先用标准 viewport 单位兜底。
+       */
+      --gxe-viewport-width: 100vw;
+      --gxe-viewport-height: 100vh;
+      --gxe-game-frame-width: min(var(--gxe-viewport-width), calc(var(--gxe-viewport-height) * 1.7777778));
+      --gxe-game-frame-height: min(var(--gxe-viewport-height), calc(var(--gxe-viewport-width) * 0.5625));
+      --gxe-game-frame-left: calc((var(--gxe-viewport-width) - var(--gxe-game-frame-width)) / 2);
+      --gxe-game-frame-right: var(--gxe-game-frame-left);
+      --gxe-game-frame-top: calc((var(--gxe-viewport-height) - var(--gxe-game-frame-height)) / 2);
+      --gxe-game-frame-bottom: var(--gxe-game-frame-top);
+    }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+    #game {
+      display: block;
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      margin: 0;
+      background: #16213e;
+      image-rendering: auto;
+    }
+    #ui-root {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+    }
+    /* 印记收集闪光动画（对应 PRD §7.7 印记收集闪光） */
+    @keyframes gxe-badge-flash {
+      0% { transform: translate(-50%, -50%) scale(0) rotate(0deg); opacity: 1; }
+      40% { transform: translate(-50%, -50%) scale(1.3) rotate(120deg); opacity: 0.9; }
+      70% { transform: translate(-50%, -50%) scale(1.6) rotate(240deg); opacity: 0.5; }
+      100% { transform: translate(-50%, -50%) scale(2) rotate(360deg); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="ui-root"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

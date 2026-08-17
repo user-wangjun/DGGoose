@@ -1,0 +1,17 @@
+{
+  "name": "goose-escape-game",
+  "version": "0.1.0",
+  "description": "鹅厂出逃记 - 2D 横版剧情冒险 HTML5 游戏",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  }
+}

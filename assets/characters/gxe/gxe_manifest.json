@@ -1,0 +1,65 @@
+{
+  "character": "莞小鹅",
+  "version": "1.0.0",
+  "source": "基于人物锚定图 gxe_character_anchor_3view.png 派生",
+  "frameDoubled": true,
+  "originalP0Frames": 20,
+  "currentP0Frames": 40,
+  "animations": [
+    {
+      "name": "idle",
+      "chineseName": "待机",
+      "frames": 8,
+      "originalFrames": 4,
+      "fps": 6,
+      "loop": true,
+      "sheet": "gxe_idle_sheet.png",
+      "config": "gxe_idle.json",
+      "grid": "2行 × 4列",
+      "frameSize": "256×256",
+      "transparent": true
+    },
+    {
+      "name": "walk",
+      "chineseName": "行走",
+      "frames": 16,
+      "originalFrames": 8,
+      "fps": 12,
+      "loop": true,
+      "sheet": "gxe_walk_sheet.png",
+      "config": "gxe_walk.json",
+      "grid": "4行 × 4列",
+      "frameSize": "256×256",
+      "transparent": true
+    },
+    {
+      "name": "run",
+      "chineseName": "奔跑",
+      "frames": 16,
+      "originalFrames": 8,
+      "fps": 16,
+      "loop": true,
+      "sheet": "gxe_run_sheet.png",
+      "config": "gxe_run.json",
+      "grid": "4行 × 4列",
+      "frameSize": "256×256",
+      "transparent": true
+    }
+  ],
+  "totalFrames": 40,
+  "cinematicPoses": [
+    {
+      "name": "climb",
+      "chineseName": "翻墙过场",
+      "asset": "gxe_climb_pose.png",
+      "frameSize": "768×768",
+      "transparent": true,
+      "usage": "序章翻墙剧情 CG 的单帧关键姿态"
+    }
+  ],
+  "usageNote": "每个动画为独立 sprite sheet 图片 + 独立 JSON 配置。游戏中每个动画状态（idle/walk/run）加载对应的 JSON + 图片组合，通过 SpriteAnimation 类播放。翻墙姿态作为独立透明关键帧由剧情过场调用。角色朝向通过 SpriteAnimation.setFlip() 实现水平翻转。",
+  "styleReference": {
+    "colorPalette": ["#8A4E2B", "#C27A3E", "#F1C24B", "#F7E7C6", "#D94B3D"],
+    "style": "卡通风格，温暖配色，毛绒质感，简洁线条"
+  }
+}

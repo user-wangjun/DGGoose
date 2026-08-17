@@ -1,0 +1,39 @@
+{
+  "atlas": {
+    "src": "gxe_idle_sheet.png",
+    "frameW": 256,
+    "frameH": 256,
+    "columns": 4,
+    "rows": 2
+  },
+  "animations": {
+    "idle": {
+      "row": 0,
+      "frames": 8,
+      "fps": 6,
+      "loop": true,
+      "anchorX": 0.5,
+      "anchorY": 0.92,
+      "frameAnchors": [
+        { "x": 0.505859, "y": 0.992188 },
+        { "x": 0.466797, "y": 0.992188 },
+        { "x": 0.460938, "y": 0.992188 },
+        { "x": 0.414062, "y": 0.992188 },
+        { "x": 0.505859, "y": 0.941406 },
+        { "x": 0.443359, "y": 0.941406 },
+        { "x": 0.423828, "y": 0.941406 },
+        { "x": 0.367188, "y": 0.941406 }
+      ],
+      "columns": 4
+    }
+  },
+  "meta": {
+    "character": "莞小鹅",
+    "animation": "idle 待机",
+    "frameCount": 8,
+    "grid": "2行 × 4列",
+    "description": "待机呼吸动画，身体轻微起伏、翅膀微动、偶尔眨眼；透明 PNG 图集",
+    "doubledFromOriginal": true,
+    "originalFrames": 4
+  }
+}

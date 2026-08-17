@@ -1,0 +1,198 @@
+{
+  "schemaVersion": "s2-c.transition.v1",
+  "scope": "静态城市地图美术 + 可由代码控制的动态转场规范",
+  "canvas": {
+    "width": 1280,
+    "height": 720,
+    "aspectRatio": "16:9",
+    "coordinateOrigin": "左上角",
+    "safeMarginPx": 80,
+    "baseImageContains": ["城市环境", "道路", "河流", "绿地", "八个区域视觉暗示"],
+    "baseImageMustNotContain": ["路线", "节点圆环", "进度点", "高亮光效", "Tip文字", "UI"]
+  },
+  "assets": {
+    "mapBase": "city_map_base.png",
+    "mapMarker": "gxe_map_marker.png",
+    "tipData": "transition_tips.json",
+    "mapBaseRole": "只读静态背景；路线、节点和Tip由运行时叠加",
+    "mapMarkerRole": "沿route.path移动的独立莞小鹅胸前勋章；建议显示尺寸24–48px高"
+  },
+  "referenceSources": {
+    "approvedSceneTemplates": [
+      "docs/scene-templates/s1/scene-01-toy-factory.png",
+      "docs/scene-templates/s1/scene-02-street-basketball.png",
+      "docs/scene-templates/s1/scene-03-lychee-orchard.png",
+      "docs/scene-templates/s1/scene-04-roast-goose-shop.png",
+      "docs/scene-templates/s1/scene-05-high-tech-park.png",
+      "docs/scene-templates/s1/scene-06-manufacturing-factory.png",
+      "docs/scene-templates/s1/scene-07-campus.png",
+      "docs/scene-templates/s1/scene-08-songshan-lake-sunset.png"
+    ],
+    "characterAnchor": "assets/characters/gxe/gxe_character_anchor_3view.png",
+    "styleNotes": ["卡通手绘", "温暖配色", "简洁深色轮廓", "轻微俯视三维感", "缩小后仍可识别"]
+  },
+  "nodes": [
+    {
+      "id": "toy-factory",
+      "sceneOrder": 1,
+      "label": "玩具工厂",
+      "anchor": {"x": 160, "y": 145},
+      "color": "#F0A343",
+      "visualCue": "灰蓝厂房、传送带、橙色机械灯",
+      "glow": {"core": "#FFF4C6", "outer": "#F0A343", "radiusPx": 28}
+    },
+    {
+      "id": "basketball",
+      "sceneOrder": 2,
+      "label": "篮球馆",
+      "anchor": {"x": 515, "y": 165},
+      "color": "#F07D34",
+      "visualCue": "橙色球场、两座篮球架",
+      "glow": {"core": "#FFF1D6", "outer": "#F07D34", "radiusPx": 26}
+    },
+    {
+      "id": "lychee-orchard",
+      "sceneOrder": 3,
+      "label": "荔枝园",
+      "anchor": {"x": 985, "y": 125},
+      "color": "#D94B4B",
+      "visualCue": "绿色树冠、成簇红色荔枝",
+      "glow": {"core": "#FFF0D1", "outer": "#D94B4B", "radiusPx": 30}
+    },
+    {
+      "id": "roast-goose-shop",
+      "sceneOrder": 4,
+      "label": "烧鹅店",
+      "anchor": {"x": 1120, "y": 275},
+      "color": "#F6C453",
+      "visualCue": "深褐老店、暖黄色灯光、展示柜",
+      "glow": {"core": "#FFF4C6", "outer": "#F6C453", "radiusPx": 28}
+    },
+    {
+      "id": "high-tech-park",
+      "sceneOrder": 5,
+      "label": "高新工业园区",
+      "anchor": {"x": 810, "y": 320},
+      "color": "#5EC6E8",
+      "visualCue": "蓝灰玻璃建筑、空中连廊、科技装置",
+      "glow": {"core": "#E7FBFF", "outer": "#5EC6E8", "radiusPx": 30}
+    },
+    {
+      "id": "manufacturing-factory",
+      "sceneOrder": 6,
+      "label": "制造工厂",
+      "anchor": {"x": 555, "y": 555},
+      "color": "#F18A3D",
+      "visualCue": "钢灰厂房、机械设备、暖橙安全线",
+      "glow": {"core": "#FFF0D2", "outer": "#F18A3D", "radiusPx": 30}
+    },
+    {
+      "id": "campus",
+      "sceneOrder": 7,
+      "label": "DGUT风格校园",
+      "anchor": {"x": 240, "y": 430},
+      "color": "#8AC16B",
+      "visualCue": "米白建筑、树木、木色廊架",
+      "glow": {"core": "#F4F8D8", "outer": "#8AC16B", "radiusPx": 28}
+    },
+    {
+      "id": "songshan-lake",
+      "sceneOrder": 8,
+      "label": "松山湖",
+      "anchor": {"x": 1055, "y": 505},
+      "color": "#C58AD2",
+      "visualCue": "湖青色水面、桥梁、橙紫晚霞",
+      "glow": {"core": "#FFF1E5", "outer": "#C58AD2", "radiusPx": 32}
+    }
+  ],
+  "route": {
+    "order": ["toy-factory", "basketball", "lychee-orchard", "roast-goose-shop", "high-tech-park", "manufacturing-factory", "campus", "songshan-lake"],
+    "coordinatesAre": "1280x720画布像素；运行时按实际缩放比例变换",
+    "segments": [
+      {"from": "toy-factory", "to": "basketball", "controlPoints": [{"x": 270, "y": 190}, {"x": 410, "y": 180}]},
+      {"from": "basketball", "to": "lychee-orchard", "controlPoints": [{"x": 650, "y": 150}, {"x": 820, "y": 130}]},
+      {"from": "lychee-orchard", "to": "roast-goose-shop", "controlPoints": [{"x": 1070, "y": 175}, {"x": 1110, "y": 225}]},
+      {"from": "roast-goose-shop", "to": "high-tech-park", "controlPoints": [{"x": 1030, "y": 330}, {"x": 910, "y": 350}]},
+      {"from": "high-tech-park", "to": "manufacturing-factory", "controlPoints": [{"x": 760, "y": 420}, {"x": 650, "y": 500}]},
+      {"from": "manufacturing-factory", "to": "campus", "controlPoints": [{"x": 450, "y": 565}, {"x": 325, "y": 500}]},
+      {"from": "campus", "to": "songshan-lake", "controlPoints": [{"x": 390, "y": 470}, {"x": 770, "y": 480}, {"x": 950, "y": 500}]}
+    ],
+    "drawSpec": {
+      "drawMethod": "strokeDashoffset或等价路径进度",
+      "lineColor": "#F7C96B",
+      "outlineColor": "#9D6944",
+      "lineWidthPx": 6,
+      "outlineWidthPx": 10,
+      "cap": "round",
+      "join": "round",
+      "shadow": "none",
+      "baseImageMustRemainUnchanged": true
+    },
+    "markerMotion": {
+      "position": "pathProgress",
+      "rotation": "保持勋章正立，不随路径切线旋转",
+      "bob": {"amplitudePx": 3, "frequencyHz": 2.2, "phase": "随pathProgress连续"},
+      "scale": {"normal": 1, "targetSettle": 1.08},
+      "flip": "不翻转；勋章始终保持正立"
+    }
+  },
+  "tips": [
+    {"id": "food-01", "category": "美食", "text": "岭南荔枝，藏着东莞的夏天。"},
+    {"id": "food-02", "category": "美食", "text": "一盏暖灯，照见街角好味道。"},
+    {"id": "food-03", "category": "美食", "text": "烧鹅香气，顺着晚风飘过来。"},
+    {"id": "food-04", "category": "美食", "text": "小店不喧闹，饭香自会引路。"},
+    {"id": "campus-01", "category": "校园", "text": "树荫和绿道，陪你慢慢逛校园。"},
+    {"id": "campus-02", "category": "校园", "text": "木色廊架下，适合停一会儿。"},
+    {"id": "campus-03", "category": "校园", "text": "校园风一吹，旅程也变得轻快。"},
+    {"id": "city-01", "category": "城市", "text": "制造与创新，在东莞并肩生长。"},
+    {"id": "city-02", "category": "城市", "text": "沿着水岸走，城市会慢慢展开。"},
+    {"id": "city-03", "category": "城市", "text": "松山湖畔，留一点晚霞给自己。"}
+  ],
+  "timing": {
+    "normalChapterSwitch": {
+      "durationMs": 3600,
+      "timeline": [
+        {"startMs": 0, "endMs": 650, "state": "map-reveal", "changes": {"mapOpacity": "0→1", "mapScale": "1.04→1.00", "mapTranslateYPx": "10→0", "mistOpacity": "0→0.35"}},
+        {"startMs": 300, "endMs": 1500, "state": "route-draw", "changes": {"routeProgress": "0→1", "routeOpacity": "0→1"}},
+        {"startMs": 720, "endMs": 2900, "state": "marker-travel", "changes": {"markerPathT": "0→1", "markerRotation": "沿切线平滑跟随", "markerBob": "±3px"}},
+        {"startMs": 0, "endMs": 3600, "state": "tip-enter", "changes": {"tipOpacity": "从开始保持可见→随最后淡出", "tipTranslateYPx": "8→0"}},
+        {"startMs": 2300, "endMs": 3050, "state": "target-highlight", "changes": {"targetGlow": "0→1→0.65", "targetScale": "1→1.08→1"}},
+        {"startMs": 3200, "endMs": 3600, "state": "fade-out", "changes": {"mapAndOverlayOpacity": "1→0", "nextSceneReadyAtMs": 3600}}
+      ],
+      "easing": {"mapReveal": "cubic-bezier(0.22,0.8,0.28,1)", "route": "ease-out", "marker": "linear-path-with-ease-in-out-end", "highlight": "ease-out", "fade": "ease-in"}
+    },
+    "intraChapterSwitch": {
+      "durationMs": 3600,
+      "timeline": [
+        {"startMs": 0, "endMs": 650, "state": "map-reveal", "changes": {"mapOpacity": "0→1", "mapScale": "1.04→1.00", "mapTranslateYPx": "10→0"}},
+        {"startMs": 300, "endMs": 1500, "state": "route-draw", "changes": {"routeProgress": "0→1", "routeOpacity": "0→1"}},
+        {"startMs": 720, "endMs": 2900, "state": "marker-travel", "changes": {"markerPathT": "0→1", "markerBob": "±3px"}},
+        {"startMs": 0, "endMs": 3600, "state": "tip-enter", "changes": {"tipOpacity": "从开始保持可见→随最后淡出", "tipTranslateYPx": "8→0"}},
+        {"startMs": 2300, "endMs": 3050, "state": "target-highlight", "changes": {"targetGlow": "0→1→0.6", "targetScale": "1→1.08→1"}},
+        {"startMs": 3200, "endMs": 3600, "state": "fade-out", "changes": {"mapAndOverlayOpacity": "1→0", "nextSceneReadyAtMs": 3600}}
+      ],
+      "easing": {"mapReveal": "ease-out", "route": "ease-out", "marker": "linear-path", "highlight": "ease-out", "fade": "ease-in"}
+    }
+  },
+  "stateMachine": {
+    "states": [
+      {"id": "hidden", "enter": {"mapOpacity": 0, "routeProgress": 0, "markerVisible": false, "targetGlow": 0, "tipVisible": true}},
+      {"id": "map-reveal", "enter": {"markerVisible": false}, "leave": {"mapOpacity": 1}},
+      {"id": "route-draw", "enter": {"routeProgress": 0, "routeOpacity": 1}, "leave": {"routeProgress": 1}},
+      {"id": "marker-travel", "enter": {"markerVisible": true, "markerPathT": 0}, "leave": {"markerPathT": 1}},
+      {"id": "target-reached", "enter": {"targetGlow": 1, "markerScale": 1.08}, "leave": {"targetGlow": 0.65, "markerScale": 1}},
+      {"id": "fade-out", "enter": {"tipVisible": true}, "leave": {"mapOpacity": 0, "markerVisible": false, "routeOpacity": 0, "tipVisible": false}}
+    ],
+    "defaultOrder": ["hidden", "map-reveal", "route-draw", "marker-travel", "target-reached", "fade-out"]
+  },
+  "refreshInput": {
+    "accepted": ["pointerdown", "Space"],
+    "behavior": "保留当前地图转场进度并轮换Tip；不快进、不跳过"
+  },
+  "qaContract": {
+    "mapBaseChecks": ["1280x720", "无文字", "无路线", "无节点圆环", "无进度点", "无Tip", "无UI", "八个区域可在25%缩放下识别"],
+    "markerChecks": ["256x256 RGBA", "四角透明", "无绿色抠像残边", "只含莞小鹅胸前勋章", "无外部文字、Logo、水印、UI"],
+    "runtimeMustKeepSeparate": ["route", "node highlight", "marker motion", "mist motion", "tip card"]
+  },
+  "negativePrompt": ["写实地图", "卫星地图", "真实导航界面", "复杂道路文字", "人物", "动物", "完整角色", "文字", "乱码", "品牌Logo", "校徽", "水印", "UI", "按钮", "输入框", "登录框", "CG海报", "分镜", "拼贴", "分屏", "边框", "3D游戏界面", "像素画", "过度写实", "过度暗黑", "过度拥挤", "路线被建筑遮挡", "重要区域贴边", "地图比例失衡"]
+}
