@@ -57,10 +57,11 @@ export class EndingCG {
    * @param {HTMLElement} deps.container - 覆盖层挂载容器
    * @param {BadgeSystem} deps.badgeSystem - 印记系统（解锁结局印记）
    */
-  constructor({ eventBus, container, badgeSystem }) {
+  constructor({ eventBus, container, badgeSystem, assetLoader = null }) {
     this.eventBus = eventBus;
     this.container = container;
     this.badgeSystem = badgeSystem;
+    this.assetLoader = assetLoader;
 
     /** 覆盖层 DOM 根 */
     this.element = null;
@@ -71,6 +72,10 @@ export class EndingCG {
     this.onExit = null;
     /** 当前展示的结局 id，供终章精确续接使用 */
     this.currentEndingId = null;
+    /** 已下载/解码的结局图片缓存，避免移动端覆盖层先出现空媒体框。 */
+    this.imageCache = new Map();
+    /** 正在下载的结局图片 Promise，避免重复请求。 */
+    this.imagePromises = new Map();
 
     this._onMenuClick = this._onMenuClick.bind(this);
   }
@@ -127,6 +132,28 @@ export class EndingCG {
   }
 
   /**
+   * 预加载并尽量完成解码；终章在展示结局面板前等待它，避免手机端右侧 CG 空白。
+   * @param {string} endingId
+   * @returns {Promise<HTMLImageElement|null>}
+   */
+  preload(endingId) {
+    const imageUrl = getEndingCGUrl(endingId);
+    if (this.imageCache.has(imageUrl)) return Promise.resolve(this.imageCache.get(imageUrl));
+    if (this.imagePromises.has(imageUrl)) return this.imagePromises.get(imageUrl);
+
+    const promise = (this.assetLoader?.loadImage
+      ? this.assetLoader.loadImage(imageUrl)
+      : this._loadImage(imageUrl)
+    ).then((image) => {
+      if (image) this.imageCache.set(imageUrl, image);
+      return image || null;
+    }).catch(() => null);
+
+    this.imagePromises.set(imageUrl, promise);
+    return promise;
+  }
+
+  /**
    * 渲染结局 CG 全屏覆盖层
    * 真结局金色主题、其余结局对应场景色调，居中展示标题/叙述/成就/印记
    * @param {Object} ending - 结局数据
@@ -137,6 +164,8 @@ export class EndingCG {
     const display = getEndingCGDisplayConfig(ending.id);
     const badgeName = this._getBadgeName(ending.badge);
     const imageUrl = getEndingCGUrl(ending.id);
+    const preloadedImage = this.imageCache.get(imageUrl);
+    const resolvedImageUrl = preloadedImage?.src || imageUrl;
 
     this.element = document.createElement('div');
     this.element.setAttribute('data-ending-cg', ending.id);
@@ -154,7 +183,7 @@ export class EndingCG {
 
     // 模糊同源背景负责填满安全区，避免 contain 模式在超宽横屏留下黑边。
     const background = document.createElement('img');
-    background.src = imageUrl;
+    background.src = resolvedImageUrl;
     background.alt = '';
     background.setAttribute('aria-hidden', 'true');
     background.setAttribute('data-ending-background', '');
@@ -197,7 +226,7 @@ export class EndingCG {
 
     const mediaBackdrop = document.createElement('img');
     mediaBackdrop.setAttribute('data-ending-media-background', ending.id);
-    mediaBackdrop.src = imageUrl;
+    mediaBackdrop.src = resolvedImageUrl;
     mediaBackdrop.alt = '';
     mediaBackdrop.setAttribute('aria-hidden', 'true');
     mediaBackdrop.decoding = 'async';
@@ -210,7 +239,7 @@ export class EndingCG {
 
     const image = document.createElement('img');
     image.setAttribute('data-ending-cg-image', ending.id);
-    image.src = imageUrl;
+    image.src = resolvedImageUrl;
     image.alt = ending.title;
     image.decoding = 'async';
     image.style.cssText = `
@@ -321,6 +350,24 @@ export class EndingCG {
 
     this.element.appendChild(stage);
     this.container.appendChild(this.element);
+  }
+
+  /** 共享资源加载器不可用时的浏览器兜底。 */
+  _loadImage(url) {
+    if (typeof Image === 'undefined') return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        if (typeof image.decode === 'function') {
+          image.decode().then(() => resolve(image), () => resolve(image));
+          return;
+        }
+        resolve(image);
+      };
+      image.onerror = () => resolve(null);
+      image.src = url;
+    });
   }
 
   /** 结局 CG 的"返回主菜单"按钮点击回调。 */

@@ -35,6 +35,10 @@ export const LYCHEE_TREES = [
   { id: 'tree-5', label: '5', x: 970, y: 188, visual: { x: 970, y: 248, width: 190, height: 210, anchorY: 0.98, bakedIn: true }, solidFootprint: { x: 947, y: 196, width: 46, height: 52 }, interaction: { x: 970, y: 188, radius: 96 } },
 ];
 
+// 正式底图正常时树木已经烘焙其中；底图加载失败或解码失败时，
+// 用这些独立透明组件保持果园仍然可辨识，并继续使用同一套坐标。
+const LYCHEE_FALLBACK_TREE_ASSETS = ['treeA', 'treeB', 'treeC', 'treeD', 'treeE'];
+
 const CHOICE_CONFIG = {
   sceneId: 'ch2',
   nextChapter: 'ch3',
@@ -245,10 +249,9 @@ export class LycheeScene {
         : null,
     ].filter(Boolean));
     actors.forEach((actor) => actor.draw());
-    // 互动标签是 UI 覆盖层，最后绘制，不改变树木/玩家的遮挡关系。
+    // 互动标签是 UI 覆盖层，最后绘制，不改变树木/玩家的遮挡关系；正式画面不画范围圈。
     this.topdown?.drawInteractables(ctx, this.animTime);
-    // 树木本体烘焙在正式底图，但“当前目标/已摘取”是运行时组件，必须独立绘制。
-    // 否则进度虽然更新，画面中的五棵树会始终看起来完全一样。
+    // 树木本体烘焙在正式底图；这里只叠加“已摘”状态牌，不画目标光环。
     this._drawTreeComponents(ctx);
     if (this.feedbackTimer > 0) this._drawFeedback(ctx);
     this.topdown?.drawDebug(ctx, {
@@ -531,71 +534,33 @@ export class LycheeScene {
     });
   }
 
-  /**
-   * 绘制荔枝树的运行时组件状态。
-   * 正式底图已经包含树冠、果实和围栏，不能再把另一套树 PNG 整棵盖上去；
-   * 这里使用独立的目标光环与已摘状态牌，既保持底图风格，又让玩法状态可见。
-   */
+  /** 绘制荔枝树的已摘状态牌；目标顺序由顶部进度 HUD 表达，不再画圆圈。 */
   _drawTreeComponents(ctx) {
     if (!ctx || !this.topdown || this.phase === 'intro' || this.phase === 'idle') return;
 
     const scale = this._getCanvasScale(ctx);
     const px = (screenPixels) => screenPixels / scale;
-    const expected = this.phase === 'explore' ? LYCHEE_SEQUENCE[this.harvestStep] : null;
 
     for (const tree of LYCHEE_TREES) {
-      const treeNumber = Number(tree.label);
       const isHarvested = this.harvested.has(tree.id);
-      const isCurrentTarget = !isHarvested && treeNumber === expected;
-      const isActive = this.topdown.activeInteractable === tree;
+      if (!isHarvested) continue;
 
-      if (isCurrentTarget) {
-        const pulse = 0.72 + Math.sin(this.animTime * 5) * 0.16;
-        const radius = Math.max(62, px(54));
-        ctx.save();
-        ctx.globalAlpha = pulse;
-        ctx.fillStyle = 'rgba(251, 191, 36, 0.12)';
-        ctx.beginPath();
-        ctx.arc(tree.x, tree.y, radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = isActive ? '#fff1a8' : '#fbbf24';
-        ctx.lineWidth = px(isActive ? 4 : 3);
-        ctx.setLineDash?.([px(10), px(7)]);
-        ctx.beginPath();
-        ctx.arc(tree.x, tree.y, radius, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash?.([]);
-
-        // 小箭头固定在树冠上方，避免目标文字在手机上缩成不可读的细线。
-        const arrowY = tree.y - radius - px(14);
-        ctx.fillStyle = '#fbbf24';
-        ctx.beginPath();
-        ctx.moveTo(tree.x, arrowY + px(12));
-        ctx.lineTo(tree.x - px(8), arrowY);
-        ctx.lineTo(tree.x + px(8), arrowY);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      }
-
-      if (isHarvested) {
-        const statusY = (tree.visual?.y ?? tree.y + 60) - px(8);
-        const badgeWidth = px(58);
-        const badgeHeight = px(22);
-        ctx.save();
-        ctx.globalAlpha = 0.96;
-        ctx.fillStyle = 'rgba(15, 59, 42, 0.9)';
-        ctx.fillRect(tree.x - badgeWidth / 2, statusY - badgeHeight / 2, badgeWidth, badgeHeight);
-        ctx.strokeStyle = '#bbf7d0';
-        ctx.lineWidth = px(1.5);
-        ctx.strokeRect(tree.x - badgeWidth / 2, statusY - badgeHeight / 2, badgeWidth, badgeHeight);
-        ctx.font = `700 ${Math.max(14, px(12))}px Microsoft YaHei, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#ecfdf5';
-        ctx.fillText('✓ 已摘', tree.x, statusY);
-        ctx.restore();
-      }
+      const statusY = (tree.visual?.y ?? tree.y + 60) - px(8);
+      const badgeWidth = px(58);
+      const badgeHeight = px(22);
+      ctx.save();
+      ctx.globalAlpha = 0.96;
+      ctx.fillStyle = 'rgba(15, 59, 42, 0.9)';
+      ctx.fillRect(tree.x - badgeWidth / 2, statusY - badgeHeight / 2, badgeWidth, badgeHeight);
+      ctx.strokeStyle = '#bbf7d0';
+      ctx.lineWidth = px(1.5);
+      ctx.strokeRect(tree.x - badgeWidth / 2, statusY - badgeHeight / 2, badgeWidth, badgeHeight);
+      ctx.font = `700 ${Math.max(14, px(12))}px Microsoft YaHei, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ecfdf5';
+      ctx.fillText('✓ 已摘', tree.x, statusY);
+      ctx.restore();
     }
   }
 
@@ -613,10 +578,14 @@ export class LycheeScene {
   _loadSceneObjects() {
     if (this.objectAssetsPromise) return this.objectAssetsPromise;
 
-    // 树木、围栏、果实和关闭的栅栏都已经烘焙在正式背景；只保留状态变化后的开门贴图。
-    this.objectAssetsPromise = loadSceneObjectAssets(this.assetLoader, {
-      gateOpen: SCENE_OBJECT_ASSETS.lychee.gateOpen,
-    }).then((images) => {
+    // 正常路径仍由大底图提供完整构图；这些独立组件同时作为底图不可用时的
+    // 可见回退，避免移动端只显示纯色而看不到树和栅栏。
+    const fallbackSpecs = Object.fromEntries([
+      ...LYCHEE_FALLBACK_TREE_ASSETS.map((assetKey) => [assetKey, SCENE_OBJECT_ASSETS.lychee[assetKey]]),
+      ['gateClosed', SCENE_OBJECT_ASSETS.lychee.gateClosed],
+      ['gateOpen', SCENE_OBJECT_ASSETS.lychee.gateOpen],
+    ]);
+    this.objectAssetsPromise = loadSceneObjectAssets(this.assetLoader, fallbackSpecs).then((images) => {
       this.objectImages = images;
       return images;
     });
@@ -624,18 +593,30 @@ export class LycheeScene {
   }
 
   _drawSceneObjects(ctx) {
-    if (!this.exitOpen) return;
     const gate = {
-      assetKey: 'gateOpen',
+      assetKey: this.exitOpen ? 'gateOpen' : 'gateClosed',
       x: GATE.x + GATE.width / 2,
       y: GATE.y + GATE.height + 2,
       width: 176,
-      height: 142,
+      height: 161,
       anchorY: 1,
-      fallbackColor: SCENE_OBJECT_ASSETS.lychee.gateOpen.fallbackColor,
+      fallbackColor: SCENE_OBJECT_ASSETS.lychee[this.exitOpen ? 'gateOpen' : 'gateClosed'].fallbackColor,
     };
 
-    drawSceneObjects(ctx, this.objectImages, [gate]);
+    // 只有正式大底图缺失时才画树和关门，避免底图成功后重复叠加五棵树；
+    // 开门状态则始终叠加独立开门贴图，覆盖底图中的关门。
+    const objects = this.backgroundImage
+      ? (this.exitOpen ? [gate] : [])
+      : [
+        ...LYCHEE_TREES.map((tree, index) => ({
+          assetKey: LYCHEE_FALLBACK_TREE_ASSETS[index],
+          ...tree.visual,
+          fallbackColor: SCENE_OBJECT_ASSETS.lychee[LYCHEE_FALLBACK_TREE_ASSETS[index]].fallbackColor,
+        })),
+        gate,
+      ];
+
+    drawSceneObjects(ctx, this.objectImages, objects);
   }
 
   /** 异步加载正式地图，地图加载失败不影响对话与解谜逻辑。 */

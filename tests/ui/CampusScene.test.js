@@ -23,6 +23,19 @@ function createScene() {
   });
 }
 
+function createObjectContext() {
+  return {
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
+    scale: vi.fn(),
+    drawImage: vi.fn(),
+    fillRect: vi.fn(),
+    ellipse: vi.fn(),
+  };
+}
+
 function walkToTarget(from, target, movementOptions) {
   let position = { ...from };
   let blockedFrames = 0;
@@ -90,6 +103,43 @@ describe('CampusScene 正式校园地图契约', () => {
     expect(scene.hotspots.find((spot) => spot.id === 'campus_library')).toMatchObject({ x: 520, y: 470 });
     expect(scene.hotspots.find((spot) => spot.id === 'campus_path')).toMatchObject({ x: 640, y: 520 });
     expect(scene.hotspots.find((spot) => spot.id === 'campus_study_window')).toMatchObject({ x: 1060, y: 480 });
+  });
+
+  it('底图未就绪时绘制校园正式物件 PNG，底图就绪后不重复叠图', () => {
+    const scene = createScene();
+    const images = {
+      libraryEntrance: { id: 'library-entrance' },
+      observationPoint: { id: 'observation-point' },
+      bench: { id: 'bench' },
+      signpost: { id: 'signpost' },
+    };
+    scene.objectImages = new Map(Object.entries(images));
+    const ctx = createObjectContext();
+
+    scene.backgroundImage = null;
+    scene._drawCampusObjects(ctx);
+    expect(ctx.drawImage.mock.calls.map(([image]) => image)).toEqual([
+      images.libraryEntrance,
+      images.observationPoint,
+      images.bench,
+      images.signpost,
+    ]);
+
+    ctx.drawImage.mockClear();
+    scene.backgroundImage = { id: 'formal-campus-background' };
+    scene._drawCampusObjects(ctx);
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+  });
+
+  it('校园角色只绘制透明 Sprite，不再叠加几何椭圆阴影', () => {
+    const scene = createScene();
+    const sprite = { draw: vi.fn() };
+    const ctx = createObjectContext();
+
+    scene._drawCampusCharacter(ctx, sprite, { x: 640, y: 500 });
+
+    expect(sprite.draw).toHaveBeenCalledWith(ctx, 640, 500, expect.objectContaining({ width: expect.any(Number) }));
+    expect(ctx.ellipse).not.toHaveBeenCalled();
   });
 
   it('为建筑、绿化岛、树木和长椅提供 solid 碰撞层，且不把中央前场声明为障碍', () => {

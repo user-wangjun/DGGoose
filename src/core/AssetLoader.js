@@ -110,7 +110,20 @@ export class AssetLoader {
   _loadImageNow(url) {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.onload = () => resolve(img);
+      img.onload = () => {
+        // 移动端可能在 load 事件后才真正解码大图；等 decode 完成，
+        // 场景转场才会放行，避免首帧先露出纯色底或几何降级块。
+        if (typeof img.decode === 'function') {
+          const decodeResult = img.decode();
+          if (decodeResult && typeof decodeResult.then === 'function') {
+            decodeResult.then(() => resolve(img), () => resolve(img));
+          } else {
+            resolve(img);
+          }
+          return;
+        }
+        resolve(img);
+      };
       img.onerror = () => reject(new Error(`图片加载失败: ${url}`));
       img.src = url;
     });

@@ -93,6 +93,15 @@ describe('BasketballScene 失败后的正式剧情出口', () => {
     expect(scene.physics.getBallPosition()).toEqual({ x: 456, y: 321 });
   });
 
+  it('从存档恢复到抉择阶段时，留下按钮仍可进入第二章', () => {
+    scene._removeRetryOverlay();
+    scene._restoreSaveState({ phase: 'choice', transitioning: true });
+
+    scene._onChoiceStay({ sceneId: 'ch1' });
+
+    expect(scene.sceneManager.change).toHaveBeenCalledWith('ch2');
+  });
+
   it('篮球穿过篮圈时立即反馈并复位，不等待落地', () => {
     scene._removeRetryOverlay();
     scene._createPhysics();
@@ -111,6 +120,46 @@ describe('BasketballScene 失败后的正式剧情出口', () => {
     // 第一章使用正式背景右侧篮架，投掷点由场景坐标配置为 320×580。
     expect(scene.physics.getBallPosition()).toEqual({ x: 320, y: 580 });
     expect(scene.ballWasFlying).toBe(false);
+  });
+
+  it('篮球在本帧落地后立即刷新到当前小关卡起点', () => {
+    scene._removeRetryOverlay();
+    scene._createPhysics();
+    scene.phase = 'playing';
+    scene.blumgiMode = true;
+    scene.transitioning = false;
+    scene._configureBlumgiLevel(0);
+    scene.chargeMeter = { update: vi.fn(), destroy: vi.fn() };
+
+    const floorY = scene.physics.getCollisionGeometry().floorY;
+    const radius = scene.physics.getBallRadius();
+    scene.physics._setBallState(720, floorY - radius, 0, 0);
+    scene.ballWasFlying = true;
+
+    scene._updatePlaying(0.01);
+
+    expect(scene.physics.getBallPosition()).toEqual({ x: 320, y: 580 });
+    expect(scene.ballWasFlying).toBe(false);
+  });
+
+  it('时间到时立即冻结飞行中的篮球并进入失败结算', () => {
+    scene._removeRetryOverlay();
+    scene._createPhysics();
+    scene.phase = 'playing';
+    scene.blumgiMode = true;
+    scene.transitioning = false;
+    scene._configureBlumgiLevel(0);
+    scene.chargeMeter = { update: vi.fn(), destroy: vi.fn() };
+    scene.physics.tickTimer(59.99);
+    scene.physics._setBallState(600, 400, 300, -200);
+    scene.ballWasFlying = true;
+
+    scene._updatePlaying(0.02);
+
+    expect(scene.physics.getTimer()).toBe(0);
+    expect(scene.phase).toBe('failed');
+    expect(scene.physics.isBallFlying()).toBe(false);
+    expect(scene.physics.getBallPosition()).toEqual({ x: 320, y: 580 });
   });
 
   it('进球事件只走一次计数，并同步刷新俯视目标进度', () => {
@@ -308,6 +357,49 @@ describe('BasketballScene 失败后的正式剧情出口', () => {
     expect(action.hidden).toBe(false);
     expect(action.disabled).toBe(false);
     expect(action.hasAttribute('data-joystick-action-suppressed')).toBe(false);
+  });
+
+  it('右下投篮轮盘复用现有瞄准物理，松手才真正发射', () => {
+    const shootingJoystick = {
+      setHandlers: vi.fn(),
+      setVisible: vi.fn(),
+      setEnabled: vi.fn(),
+    };
+    const mobileScene = new BasketballScene({
+      sceneManager,
+      eventBus,
+      badgeSystem,
+      dialogueRunner: {},
+      dialogueBox: { show: vi.fn(), hide: vi.fn(), update: vi.fn() },
+      input: {},
+      container,
+      shootingJoystick,
+    });
+    const handlers = shootingJoystick.setHandlers.mock.calls[0][0];
+    mobileScene._createPhysics();
+    mobileScene.phase = 'playing';
+    mobileScene.chargeMeter = { update: vi.fn(), destroy: vi.fn() };
+
+    handlers.onMove({ x: 0.75, y: -0.75, run: true });
+    const expected = { ...mobileScene.aimVelocity };
+    expect(mobileScene.isAiming).toBe(true);
+    expect(expected.vx).toBeGreaterThan(0);
+    expect(expected.vy).toBeLessThan(0);
+
+    handlers.onRelease({ x: 0.75, y: -0.75, run: true });
+
+    expect(mobileScene.isAiming).toBe(false);
+    expect(mobileScene.physics.isBallFlying()).toBe(true);
+    expect(mobileScene.physics.getBallVelocity().vx).toBeCloseTo(expected.vx, 5);
+    expect(mobileScene.physics.getBallVelocity().vy).toBeCloseTo(expected.vy, 5);
+
+    mobileScene._setMobileShootVisible(true);
+    expect(shootingJoystick.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(shootingJoystick.setVisible).toHaveBeenLastCalledWith(true);
+    mobileScene._setMobileShootVisible(false);
+    expect(shootingJoystick.setEnabled).toHaveBeenLastCalledWith(false);
+    expect(shootingJoystick.setVisible).toHaveBeenLastCalledWith(false);
+    mobileScene.onExit();
   });
 
   it('触屏从篮球附近而非精确中心按下也能进入瞄准', () => {

@@ -43,6 +43,18 @@ describe('正式结尾 CG', () => {
     expect(background.getAttribute('aria-hidden')).toBe('true');
   });
 
+  it('可以先预加载结局图，再创建覆盖层，避免移动端媒体框空白', async () => {
+    const image = { src: 'https://example.test/ending.png' };
+    endingCG.assetLoader = { loadImage: vi.fn().mockResolvedValue(image) };
+
+    await endingCG.preload('intro_dongguan');
+    endingCG.show('intro_dongguan');
+
+    expect(endingCG.assetLoader.loadImage).toHaveBeenCalledOnce();
+    expect(container.querySelector('[data-ending-cg-image="intro_dongguan"]').src)
+      .toBe(image.src);
+  });
+
   it('六个 endingId 都有独立的安全区配置', () => {
     const endingIds = ENDINGS.map((ending) => ending.id);
 

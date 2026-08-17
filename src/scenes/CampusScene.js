@@ -2,8 +2,8 @@ import { GAME, EVENT } from '../config.js';
 import { DIALOGUES } from '../data/dialogues.js';
 import { getHotspotsByScene } from '../data/hotspots.js';
 import { TopdownController } from '../core/TopdownController.js';
-// Static campus objects are intentionally not requested: the formal background
-// already contains them, while this import preserves the shared asset contract.
+// Formal campus objects are used as a decode/failure fallback; once the formal
+// background is ready, its baked layer remains authoritative.
 import { drawSceneObjects, loadSceneObjectAssets } from '../core/SceneObjectRenderer.js';
 import { SCENE_OBJECT_ASSETS } from '../data/sceneObjectAssets.js';
 import { sortBySortY, drawCollisionDebug, isCollisionDebugEnabled } from '../core/SceneLayout.js';
@@ -66,6 +66,8 @@ export class CampusScene {
     this.choiceOverlay = null;
     this.backgroundImage = null;
     this.backgroundLoadPromise = null;
+    this.objectImages = new Map();
+    this.objectAssetsPromise = null;
     this.debugCollision = isCollisionDebugEnabled();
 
     this._onDialogueNext = this._onDialogueNext.bind(this);
@@ -84,6 +86,7 @@ export class CampusScene {
     this.transitioning = false;
     this._initLeaves();
     this._loadBackground();
+    this._loadSceneObjects();
     this.gooseSprite?.load?.();
     this.seniorSprite?.load?.();
     this.seniorFemaleSprite?.load?.();
@@ -129,6 +132,17 @@ export class CampusScene {
       topdown: this.topdown?.getSaveState?.() || null,
       dialogue: this.dialogueBox?.getSaveState?.() || null,
     };
+  }
+
+  /** 手机端地图转场必须等待校园底图、正式物件和角色动作图集就绪。 */
+  getAssetReadyPromise() {
+    return Promise.all([
+      this.backgroundLoadPromise || Promise.resolve(null),
+      this.objectAssetsPromise || Promise.resolve(null),
+      this.gooseSprite?.load?.() || null,
+      this.seniorSprite?.load?.() || null,
+      this.seniorFemaleSprite?.load?.() || null,
+    ]);
   }
 
   /** 恢复校园观察点、出口开放状态和短暂互动锁。 */
@@ -194,6 +208,7 @@ export class CampusScene {
   draw(ctx) {
     if (!ctx) return;
     this._drawMap(ctx);
+    this._drawCampusObjects(ctx);
     const actors = sortBySortY([
       this.seniorSprite ? { sortY: SENIOR_POSITION.y, draw: () => this._drawCampusCharacter(ctx, this.seniorSprite, SENIOR_POSITION) } : null,
       this.seniorFemaleSprite ? { sortY: SENIOR_FEMALE_POSITION.y, draw: () => this._drawCampusCharacter(ctx, this.seniorFemaleSprite, SENIOR_FEMALE_POSITION) } : null,
@@ -237,6 +252,8 @@ export class CampusScene {
     this.seniorFemaleSprite?.clearAction();
     this.backgroundImage = null;
     this.backgroundLoadPromise = null;
+    this.objectAssetsPromise = null;
+    this.objectImages = new Map();
     this.phase = 'idle';
     this.transitioning = false;
     this.leaves = [];
@@ -405,22 +422,58 @@ export class CampusScene {
     ctx.fillRect(0, 0, GAME.WIDTH, GAME.HEIGHT);
   }
 
+  /**
+   * 底图解码期间用正式透明物件维持三个观察点的视觉锚点；
+   * 底图就绪后不重复覆盖已经烘焙进背景的建筑、花坛和长椅。
+   */
+  _drawCampusObjects(ctx) {
+    if (this.backgroundImage) return;
+    drawSceneObjects(ctx, this.objectImages, [
+      {
+        assetKey: 'libraryEntrance',
+        x: 520,
+        y: 470,
+        width: 156,
+        height: 132,
+        anchorX: 0.5,
+        anchorY: 1,
+        fallbackColor: SCENE_OBJECT_ASSETS.campus.libraryEntrance.fallbackColor,
+      },
+      {
+        assetKey: 'observationPoint',
+        x: 640,
+        y: 520,
+        width: 128,
+        height: 98,
+        anchorX: 0.5,
+        anchorY: 1,
+        fallbackColor: SCENE_OBJECT_ASSETS.campus.observationPoint.fallbackColor,
+      },
+      {
+        assetKey: 'bench',
+        x: 420,
+        y: 650,
+        width: 104,
+        height: 72,
+        anchorX: 0.5,
+        anchorY: 1,
+        fallbackColor: SCENE_OBJECT_ASSETS.campus.bench.fallbackColor,
+      },
+      {
+        assetKey: 'signpost',
+        x: 930,
+        y: 520,
+        width: 76,
+        height: 112,
+        anchorX: 0.5,
+        anchorY: 1,
+        fallbackColor: SCENE_OBJECT_ASSETS.campus.signpost.fallbackColor,
+      },
+    ]);
+  }
+
   /** 绘制校园里的真实透明学长与学姐 Sprite；建筑只来自正式底图。 */
   _drawCampusCharacter(ctx, sprite, position) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(24, 65, 78, .24)';
-    ctx.beginPath();
-    ctx.ellipse(
-      position.x,
-      position.y + 30 * CAMPUS_CHARACTER_SCALE,
-      30 * CAMPUS_CHARACTER_SCALE,
-      9 * CAMPUS_CHARACTER_SCALE,
-      0,
-      0,
-      Math.PI * 2,
-    );
-    ctx.fill();
-    ctx.restore();
     sprite.draw(ctx, position.x, position.y, {
       width: CAMPUS_NPC_DRAW_SIZE,
       height: CAMPUS_NPC_DRAW_SIZE,
@@ -450,6 +503,21 @@ export class CampusScene {
     });
     image.src = CAMPUS_BACKGROUND_URL;
     return this.backgroundLoadPromise;
+  }
+
+  _loadSceneObjects() {
+    if (this.objectAssetsPromise) return this.objectAssetsPromise;
+
+    this.objectAssetsPromise = loadSceneObjectAssets(this.assetLoader, {
+      libraryEntrance: SCENE_OBJECT_ASSETS.campus.libraryEntrance,
+      observationPoint: SCENE_OBJECT_ASSETS.campus.observationPoint,
+      bench: SCENE_OBJECT_ASSETS.campus.bench,
+      signpost: SCENE_OBJECT_ASSETS.campus.signpost,
+    }).then((images) => {
+      this.objectImages = images;
+      return images;
+    });
+    return this.objectAssetsPromise;
   }
 
   _initLeaves() {

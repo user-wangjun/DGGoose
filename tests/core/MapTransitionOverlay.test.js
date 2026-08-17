@@ -106,6 +106,65 @@ describe('MapTransitionOverlay 城市地图转场', () => {
     expect(transition.getState()).toMatchObject({ active: false, fadeAlpha: 0, tipAlpha: 0 });
   });
 
+  it('目标场景资源未解码时保持地图转场，不提前露出纯色场景', async () => {
+    let resolveReady;
+    const readyPromise = new Promise((resolve) => {
+      resolveReady = resolve;
+    });
+    const transition = new MapTransitionOverlay({ routeData });
+
+    expect(transition.start({ toName: 'ch4', readyPromise })).toBe(true);
+    transition.update(4);
+
+    expect(transition.getState()).toMatchObject({
+      active: true,
+      sceneReady: false,
+      fadeAlpha: 1,
+    });
+
+    resolveReady();
+    await Promise.resolve();
+    await Promise.resolve();
+    transition.update(0);
+
+    expect(transition.getState()).toMatchObject({
+      active: false,
+      sceneReady: true,
+      fadeAlpha: 0,
+    });
+  });
+
+  it('目标场景资源门超时后放行，不能永久卡在城市地图', () => {
+    vi.useFakeTimers();
+    try {
+      const transition = new MapTransitionOverlay({ routeData, readyTimeoutMs: 1000 });
+      const readyPromise = new Promise(() => {});
+
+      transition.start({ toName: 'ch4', readyPromise });
+      transition.update(4);
+
+      expect(transition.getState()).toMatchObject({
+        active: true,
+        sceneReady: false,
+        fadeAlpha: 1,
+      });
+
+      vi.advanceTimersByTime(999);
+      expect(transition.getState().sceneReady).toBe(false);
+
+      vi.advanceTimersByTime(1);
+      expect(transition.getState().sceneReady).toBe(true);
+
+      transition.update(0);
+      expect(transition.getState()).toMatchObject({
+        active: false,
+        fadeAlpha: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('目标节点没有映射时不启动徽章式地图转场', () => {
     const transition = new MapTransitionOverlay({ routeData });
 

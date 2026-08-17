@@ -111,6 +111,28 @@ describe('SceneManager 场景状态机', () => {
     });
   });
 
+  it('场景提供正式资源 Promise 时把它交给地图转场作为放行门槛', () => {
+    const transition = { start: vi.fn(), update: vi.fn(), draw: vi.fn() };
+    const sm = new SceneManager({ transition });
+    const readyPromise = Promise.resolve();
+    const sceneA = createStubScene('A');
+    const sceneB = createStubScene('B');
+    sceneB.getAssetReadyPromise = vi.fn(() => readyPromise);
+    sm.register('a', sceneA);
+    sm.register('b', sceneB);
+
+    sm.change('a');
+    sm.change('b');
+
+    expect(sceneB.getAssetReadyPromise).toHaveBeenCalledOnce();
+    expect(transition.start).toHaveBeenCalledWith({
+      fromName: 'a',
+      toName: 'b',
+      params: undefined,
+      readyPromise,
+    });
+  });
+
   it('场景切换不会被 skipTransition 参数跳过', () => {
     const transition = { start: vi.fn(), update: vi.fn(), draw: vi.fn() };
     const sm = new SceneManager({ transition });

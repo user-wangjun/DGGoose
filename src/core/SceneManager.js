@@ -238,6 +238,12 @@ export class SceneManager {
    */
   _startTransition(fromName, toName, params) {
     if (!this.transition || !fromName) return;
-    this.transition.start({ fromName, toName, params });
+    const scene = this.scenes.get(toName);
+    const readyPromise = scene?.getAssetReadyPromise?.();
+    const transitionOptions = { fromName, toName, params };
+    if (readyPromise && typeof readyPromise.then === 'function') {
+      transitionOptions.readyPromise = readyPromise;
+    }
+    this.transition.start(transitionOptions);
   }
 }

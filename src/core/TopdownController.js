@@ -291,13 +291,13 @@ export class TopdownController {
   }
 
   /**
-   * 绘制地图中的互动标记、出口和当前目标高亮。
+   * 绘制地图中的互动标签。
+   * 互动半径只参与逻辑判定，不在正式画面中绘制圆环或圆点，避免破坏场景美术。
    * @param {CanvasRenderingContext2D} ctx - Canvas 上下文
-   * @param {number} time - 场景累计时间
+   * @param {number} _time - 保留场景调用接口，正式标签不做脉冲动画
    */
-  drawInteractables(ctx, time = 0) {
+  drawInteractables(ctx, _time = 0) {
     if (!ctx || !this.interactionEnabled) return;
-    const pulse = 0.5 + Math.sin(time * 4) * 0.5;
     const canvasScale = this._getCanvasScale(ctx);
     const logicalPixels = (screenPixels) => screenPixels / canvasScale;
     ctx.save();
@@ -308,10 +308,10 @@ export class TopdownController {
       // Canvas 在手机横屏时通常只有 0.54 倍 CSS 缩放；直接使用 12px
       // 会把目标名称压成 6px 左右，组件虽然存在但用户看不清。
       const fontSize = Math.max(baseFontSize, logicalPixels(12));
-      // 正式 PNG 物件已经由场景层绘制；这里只保留当前目标文字，
-      // 避免圆环/圆点再次伪装成齿轮、篮筐、围栏或图书馆。
+      // 正式 PNG 物件已经由场景层绘制；这里只在玩家靠近当前目标时保留文字，
+      // 避免远处的物件标签和圆环/圆点再次伪装成齿轮、篮筐、围栏或图书馆。
       if (target.hideMarker) {
-        if (target.markerLabel) {
+        if (target.markerLabel && isActive) {
           ctx.globalAlpha = isActive ? 0.98 : 0.82;
           ctx.font = `${isActive ? 700 : 600} ${fontSize}px Microsoft YaHei, sans-serif`;
           ctx.textAlign = 'center';
@@ -335,29 +335,16 @@ export class TopdownController {
         );
         continue;
       }
-      const radius = Math.max(target.markerRadius || 18, logicalPixels(18)) + (isActive ? pulse * 4 : 0);
-      const color = target.isExit ? '#60a5fa' : isActive ? '#fbbf24' : '#d8b35f';
-
       ctx.globalAlpha = isActive ? 0.95 : 0.72;
-      ctx.fillStyle = `${color}33`;
-      ctx.beginPath();
-      ctx.arc(target.x, target.y, radius + 10, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = isActive ? 3 : 2;
-      ctx.beginPath();
-      ctx.arc(target.x, target.y, radius, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(target.x, target.y, 5, 0, Math.PI * 2);
-      ctx.fill();
-
       ctx.font = `${isActive ? 700 : 600} ${fontSize}px Microsoft YaHei, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#fff8e7';
-      ctx.fillText(target.markerLabel || target.label || '', target.x, target.y - radius - logicalPixels(8));
+      ctx.fillText(
+        target.markerLabel || target.label || '',
+        target.x,
+        target.y - (target.markerLabelOffset ?? logicalPixels(26)),
+      );
     }
     ctx.restore();
   }

@@ -142,6 +142,17 @@ export class IndustrialScene {
     };
   }
 
+  /** 手机端地图转场必须等待正式底图、物件和场景角色完成下载/解码。 */
+  getAssetReadyPromise() {
+    return Promise.all([
+      this.backgroundPromise || Promise.resolve(null),
+      this.objectAssetsPromise || Promise.resolve(null),
+      this.gooseSprite?.load?.() || null,
+      this.engineerSprite?.load?.() || null,
+      this.industrialWorkerSprite?.load?.() || null,
+    ]);
+  }
+
   /** 恢复园区收集、组装动画剩余时间和尾声抉择。 */
   _restoreSaveState(state) {
     if (!state || typeof state !== 'object') return;
@@ -540,10 +551,14 @@ export class IndustrialScene {
   _loadSceneObjects() {
     if (this.objectAssetsPromise) return this.objectAssetsPromise;
 
-    // 园区设备、建筑和关闭的安检门都已经烘焙在正式背景；只加载会变化的齿轮、组装结果和开门状态。
+    // 正式底图通常已经包含固定设备；同时保留透明 PNG，确保底图还在解码时
+    // 观察点、组装台和门体不会退化成一块没有语义的空地图。
     this.objectAssetsPromise = loadSceneObjectAssets(this.assetLoader, {
+      drone: SCENE_OBJECT_ASSETS.industrial.drone,
       gear: SCENE_OBJECT_ASSETS.industrial.gear,
+      assemblyTable: SCENE_OBJECT_ASSETS.industrial.assemblyTable,
       assemblyComplete: SCENE_OBJECT_ASSETS.industrial.assemblyComplete,
+      gateClosed: SCENE_OBJECT_ASSETS.industrial.gateClosed,
       gateOpen: SCENE_OBJECT_ASSETS.industrial.gateOpen,
     }).then((images) => {
       this.objectImages = images;
@@ -553,7 +568,44 @@ export class IndustrialScene {
   }
 
   _drawHotspotObjects(ctx) {
-    // 观察点所在的设备、工作台和无人机都已经画在正式园区背景中；这里只保留透明互动热区。
+    // 正式底图加载完成后不重复覆盖烘焙物件；底图解码期间用对应 PNG 保住
+    // 观察点的真实形体，避免回退到圆点/圆环或空白色块。
+    if (this.backgroundImage) return;
+    const objects = [
+      {
+        assetKey: 'drone',
+        x: 548,
+        y: 132,
+        width: 112,
+        height: 88,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        fallbackColor: SCENE_OBJECT_ASSETS.industrial.drone.fallbackColor,
+      },
+      {
+        assetKey: 'assemblyTable',
+        x: ASSEMBLY_STATION.x,
+        y: ASSEMBLY_STATION.y + 54,
+        width: 148,
+        height: 112,
+        anchorX: 0.5,
+        anchorY: 1,
+        fallbackColor: SCENE_OBJECT_ASSETS.industrial.assemblyTable.fallbackColor,
+      },
+    ];
+    if (!this.gateOpen) {
+      objects.push({
+        assetKey: 'gateClosed',
+        x: SECURITY_GATE.x,
+        y: 454,
+        width: 132,
+        height: 198,
+        anchorX: 0.5,
+        anchorY: 1,
+        fallbackColor: SCENE_OBJECT_ASSETS.industrial.gateClosed.fallbackColor,
+      });
+    }
+    drawSceneObjects(ctx, this.objectImages, objects);
   }
 
   _drawGears(ctx) {
@@ -600,30 +652,18 @@ export class IndustrialScene {
     }]);
   }
 
-  /** 绘制高新工程师：脚底锚定在组装台，不再用圆形互动图标代替人物。 */
+  /** 绘制高新工程师：只使用透明动作 Sprite，不再叠加几何椭圆。 */
   _drawEngineer(ctx) {
     const { x, y } = ENGINEER_POSITION;
-    ctx.save();
-    ctx.fillStyle = 'rgba(15, 23, 42, .28)';
-    ctx.beginPath();
-    ctx.ellipse(x, y + 30, 31, 9, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
     this.engineerSprite?.draw(ctx, x, y, {
       width: 146,
       height: 146,
     });
   }
 
-  /** 绘制设备区工业工人：透明动作 Sprite 与设备台错位摆放，保留脚底阴影。 */
+  /** 绘制设备区工业工人：透明动作 Sprite 与设备台错位摆放。 */
   _drawIndustrialWorker(ctx) {
     const { x, y } = INDUSTRIAL_WORKER_POSITION;
-    ctx.save();
-    ctx.fillStyle = 'rgba(15, 23, 42, .28)';
-    ctx.beginPath();
-    ctx.ellipse(x, y + 30, 29, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
     this.industrialWorkerSprite?.draw(ctx, x, y, {
       width: 136,
       height: 136,

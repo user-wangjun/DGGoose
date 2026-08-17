@@ -111,6 +111,68 @@ describe('荔枝园俯视流程', () => {
     scene.onExit();
   });
 
+  it('正式底图不可用时仍绘制独立果园组件，避免只剩纯色兜底', () => {
+    const treeImages = [
+      ['treeA', { id: 'tree-a' }],
+      ['treeB', { id: 'tree-b' }],
+      ['treeC', { id: 'tree-c' }],
+      ['treeD', { id: 'tree-d' }],
+      ['treeE', { id: 'tree-e' }],
+    ];
+    const closedGate = { id: 'closed-gate' };
+    const { scene } = createScene();
+    scene.backgroundImage = null;
+    scene.exitOpen = false;
+    scene.objectImages = new Map([...treeImages, ['gateClosed', closedGate]]);
+
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      translate: vi.fn(),
+      rotate: vi.fn(),
+      scale: vi.fn(),
+      drawImage: vi.fn(),
+      fillRect: vi.fn(),
+    };
+
+    scene._drawMap(ctx);
+    scene._drawSceneObjects(ctx);
+
+    expect(ctx.drawImage).toHaveBeenCalledTimes(6);
+    expect(ctx.drawImage.mock.calls.map(([image]) => image)).toEqual([
+      ...treeImages.map(([, image]) => image),
+      closedGate,
+    ]);
+  });
+
+  it('正式底图就绪且栅栏关闭时不重复叠加树和关门组件', () => {
+    const { scene } = createScene();
+    scene.backgroundImage = { id: 'closed-background' };
+    scene.exitOpen = false;
+    scene.objectImages = new Map([
+      ['treeA', { id: 'tree-a' }],
+      ['treeB', { id: 'tree-b' }],
+      ['treeC', { id: 'tree-c' }],
+      ['treeD', { id: 'tree-d' }],
+      ['treeE', { id: 'tree-e' }],
+      ['gateClosed', { id: 'closed-gate' }],
+    ]);
+
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      translate: vi.fn(),
+      rotate: vi.fn(),
+      scale: vi.fn(),
+      drawImage: vi.fn(),
+      fillRect: vi.fn(),
+    };
+
+    scene._drawSceneObjects(ctx);
+
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+  });
+
   it('运行时组件层显示当前目标，并给已摘树留下可见状态', () => {
     const { scene } = createScene();
     scene.onEnter();
@@ -142,8 +204,8 @@ describe('荔枝园俯视流程', () => {
 
     scene._drawTreeComponents(ctx);
 
-    expect(ctx.arc).toHaveBeenCalled();
-    expect(ctx.stroke).toHaveBeenCalled();
+    expect(ctx.arc).not.toHaveBeenCalled();
+    expect(ctx.stroke).not.toHaveBeenCalled();
     expect(ctx.fillText).toHaveBeenCalledWith('✓ 已摘', 650, expect.any(Number));
     scene.onExit();
   });

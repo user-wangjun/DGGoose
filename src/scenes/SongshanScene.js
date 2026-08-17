@@ -122,6 +122,7 @@ export class SongshanScene {
       eventBus: this.eventBus,
       container: this.container,
       badgeSystem: this.badgeSystem,
+      assetLoader: this.assetLoader,
     });
     this.endingCG.onExit = this._onExitToMenu;
 
@@ -144,6 +145,15 @@ export class SongshanScene {
     };
   }
 
+  /** 手机端地图转场必须等待湖景底图、长椅/湖岸装饰和鹅的动作图集就绪。 */
+  getAssetReadyPromise() {
+    return Promise.all([
+      this.backgroundLoadPromise || Promise.resolve(null),
+      this.objectAssetsPromise || Promise.resolve(null),
+      this.gooseSprite?.load?.() || null,
+    ]);
+  }
+
   /** 恢复走马灯或结局 CG，不再次广播章节完成。 */
   _restoreSaveState(state) {
     if (!state || typeof state !== 'object') return;
@@ -153,7 +163,10 @@ export class SongshanScene {
     this.endingId = state.endingId || null;
     if (this.phase === 'endingShown' && this.endingId) {
       this.dialogueBox?.hide?.();
-      this.endingCG?.show?.(this.endingId, { persist: false });
+      const preload = this.endingCG?.preload?.(this.endingId);
+      Promise.resolve(preload).then(() => {
+        this.endingCG?.show?.(this.endingId, { persist: false });
+      });
     } else if (state.dialogue) {
       this.dialogueBox?.restoreSaveState?.(state.dialogue);
     } else {
@@ -328,12 +341,19 @@ export class SongshanScene {
       this.effectParticles.emit(GAME.WIDTH / 2, GAME.HEIGHT / 2, 'flash');
     }
 
-    // 广播结局 CG 事件，供外部模块（存档、统计）响应
-    this.eventBus.emit(EVENT.ENDING_CG, { endingId });
+    const showEnding = () => {
+      // 广播结局 CG 事件，供外部模块（存档、统计）响应
+      this.eventBus.emit(EVENT.ENDING_CG, { endingId });
 
-    // 通过 EndingCG 组件展示结局（内部解锁印记 + 播放音效 + 广播 CHAPTER_COMPLETE）
-    if (this.endingCG) {
-      this.endingCG.show(endingId);
+      // 通过 EndingCG 组件展示结局（内部解锁印记 + 播放音效 + 广播 CHAPTER_COMPLETE）
+      if (this.endingCG) this.endingCG.show(endingId);
+    };
+
+    // 移动端先完成结局图下载/解码，再创建覆盖层，避免右侧媒体框暂时全黑。
+    if (this.endingCG?.preload) {
+      this.endingCG.preload(endingId).then(showEnding);
+    } else {
+      showEnding();
     }
   }
 
@@ -398,7 +418,7 @@ export class SongshanScene {
   }
 
   /**
-   * 绘制余烬粒子：金黄色小点，透明度随剩余生命递减
+   * 绘制余烬粒子：用短十字火花保留黄昏氛围，避免再叠加圆形占位点。
    * @param {CanvasRenderingContext2D} ctx
    * @private
    */
@@ -408,9 +428,15 @@ export class SongshanScene {
       const alpha = Math.min(1, particle.life / particle.maxLife) * 0.8;
       ctx.globalAlpha = alpha;
       ctx.fillStyle = '#fbbf24';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = Math.max(1, particle.size * 0.7);
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(particle.x - particle.size * 1.1, particle.y);
+      ctx.lineTo(particle.x + particle.size * 1.1, particle.y);
+      ctx.moveTo(particle.x, particle.y - particle.size * 0.7);
+      ctx.lineTo(particle.x, particle.y + particle.size * 0.7);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -465,6 +491,31 @@ export class SongshanScene {
   }
 
   _drawSongshanForeground(ctx) {
-    // 芦苇属于正式背景的 baked-in 前景，不再额外叠加透明 PNG。
+    // 长椅是角色坐姿的前景遮挡层：先画鹅，再画长椅的座面/腿部，
+    // 避免鹅像站在长椅前面。芦苇仍由正式背景提供，避免重复叠图。
+    const benchImage = this.objectImages?.get('bench');
+    if (!ctx || !benchImage) return;
+
+    const benchWidth = 188;
+    const benchHeight = 128;
+    const benchX = GAME.WIDTH / 2 - benchWidth / 2;
+    const benchY = GAME.HEIGHT - 76 - benchHeight;
+    const foregroundSourceY = 188;
+    const foregroundSourceHeight = 356 - foregroundSourceY;
+    const foregroundHeight = benchHeight * (foregroundSourceHeight / 356);
+
+    ctx.save();
+    ctx.drawImage(
+      benchImage,
+      0,
+      foregroundSourceY,
+      384,
+      foregroundSourceHeight,
+      benchX,
+      benchY + benchHeight - foregroundHeight,
+      benchWidth,
+      foregroundHeight,
+    );
+    ctx.restore();
   }
 }

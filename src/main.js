@@ -32,6 +32,7 @@ import { GooseSprite } from './core/GooseSprite.js';
 import { BossSprite } from './core/BossSprite.js';
 import { NpcSprite } from './core/NpcSprite.js';
 import { VirtualJoystick } from './ui/VirtualJoystick.js';
+import { ShootingJoystick } from './ui/ShootingJoystick.js';
 import { DialogueBox } from './ui/DialogueBox.js';
 import { BadgeReveal } from './ui/BadgeReveal.js';
 import { EndingReviewPanel } from './ui/EndingReviewPanel.js';
@@ -92,9 +93,12 @@ function main() {
 
   // 虚拟摇杆（仅触屏设备显示）
   let joystick = null;
+  let shootingJoystick = null;
   if (isTouchDevice()) {
     joystick = new VirtualJoystick({ container: uiRoot });
     joystick.mount();
+    shootingJoystick = new ShootingJoystick({ container: uiRoot });
+    shootingJoystick.mount();
   }
 
   // 角色控制器（共享实例，场景切换时重置位置）
@@ -359,6 +363,7 @@ function main() {
     getChoice,
     gooseSprite,
     coachSprite: npcSprites.coach,
+    shootingJoystick,
   });
   sceneManager.register('ch1', basketballScene);
 

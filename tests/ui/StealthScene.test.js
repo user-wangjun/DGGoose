@@ -4,8 +4,9 @@ import { StealthScene } from '../../src/scenes/StealthScene.js';
 
 function createScene() {
   const dialogueBox = { show: vi.fn(), hide: vi.fn(), update: vi.fn() };
+  const sceneManager = { change: vi.fn() };
   const scene = new StealthScene({
-    sceneManager: { change: vi.fn() },
+    sceneManager,
     eventBus: new EventBus(),
     badgeSystem: { unlockOrReveal: vi.fn() },
     dialogueRunner: {},
@@ -15,7 +16,7 @@ function createScene() {
     container: document.createElement('div'),
     getChoice: () => null,
   });
-  return { scene, dialogueBox };
+  return { scene, dialogueBox, sceneManager };
 }
 
 describe('烧鹅店场景物件与交互契约', () => {
@@ -121,5 +122,28 @@ describe('烧鹅店场景物件与交互契约', () => {
       '第三章 · 烧鹅店',
       '被手电筒照到了！烧鹅掉回去了，等待老板复位',
     );
+  });
+
+  it('尾声完成后释放尾声锁，选择留下可以进入第四章', () => {
+    const { scene, sceneManager } = createScene();
+    scene.phase = 'outro';
+    scene.transitioning = true;
+
+    scene._onOutroComplete();
+
+    expect(scene.phase).toBe('choice');
+    expect(scene.transitioning).toBe(false);
+    scene._onChoiceStay({ sceneId: 'ch3' });
+
+    expect(sceneManager.change).toHaveBeenCalledWith('ch4');
+  });
+
+  it('从存档恢复到抉择阶段时，留下按钮仍可推进', () => {
+    const { scene, sceneManager } = createScene();
+
+    scene._restoreSaveState({ phase: 'choice', transitioning: true });
+    scene._onChoiceStay({ sceneId: 'ch3' });
+
+    expect(sceneManager.change).toHaveBeenCalledWith('ch4');
   });
 });

@@ -54,6 +54,19 @@ function readPngSize(filePath) {
   return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
 }
 
+function createObjectContext() {
+  return {
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
+    scale: vi.fn(),
+    drawImage: vi.fn(),
+    fillRect: vi.fn(),
+    ellipse: vi.fn(),
+  };
+}
+
 describe('第四章·工业园区正式场景', () => {
   afterEach(() => vi.useRealTimers());
 
@@ -74,6 +87,39 @@ describe('第四章·工业园区正式场景', () => {
     expect(ctx.fillRect).not.toHaveBeenCalled();
     expect(ctx.fillText).not.toHaveBeenCalled();
     scene.onExit();
+  });
+
+  it('底图未就绪时绘制工业园正式物件 PNG，不回退到互动圆环或空物件层', () => {
+    const { scene } = createScene();
+    const images = {
+      drone: { id: 'drone' },
+      assemblyTable: { id: 'assembly-table' },
+      gateClosed: { id: 'gate-closed' },
+    };
+    scene.objectImages = new Map(Object.entries(images));
+    scene.backgroundImage = null;
+
+    const ctx = createObjectContext();
+    scene._drawHotspotObjects(ctx);
+
+    expect(ctx.drawImage.mock.calls.map(([image]) => image)).toEqual([
+      images.drone,
+      images.assemblyTable,
+      images.gateClosed,
+    ]);
+    expect(ctx.ellipse).not.toHaveBeenCalled();
+  });
+
+  it('工业园角色只绘制透明 Sprite，不再叠加几何椭圆阴影', () => {
+    const { scene } = createScene();
+    const ctx = createObjectContext();
+
+    scene._drawEngineer(ctx);
+    scene._drawIndustrialWorker(ctx);
+
+    expect(scene.engineerSprite.draw).toHaveBeenCalled();
+    expect(scene.industrialWorkerSprite.draw).toHaveBeenCalled();
+    expect(ctx.ellipse).not.toHaveBeenCalled();
   });
 
   it('把厂房、围栏、设备、仓库、墙体和未开放安检门定义为 solid 碰撞', () => {

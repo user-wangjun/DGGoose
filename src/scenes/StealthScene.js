@@ -232,6 +232,18 @@ export class StealthScene {
     };
   }
 
+  /**
+   * 地图转场使用的正式资源就绪门槛；手机端不能在背景仍解码时露出纯色地图。
+   * 失败会由转场统一放行，场景内部仍保留自己的容错绘制。
+   */
+  getAssetReadyPromise() {
+    return Promise.all([
+      this.assetsPromise || Promise.resolve(null),
+      this.gooseSprite?.load?.() || null,
+      this.bossSprite?.load?.() || null,
+    ]);
+  }
+
   /** 恢复潜行、逃跑、被抓倒计时或尾声抉择，不重置老板巡逻。 */
   _restoreSaveState(state) {
     if (!state || typeof state !== 'object') return;
@@ -543,7 +555,11 @@ export class StealthScene {
    * @private
    */
   _onOutroComplete() {
-    if (this.transitioning) return;
+    if (this.phase !== 'outro') return;
+    // transitioning 只表示从出口进入尾声对话时的锁定；对话完成后要释放它，
+    // 否则后续“留下/继续前行”会被当成重复切换而忽略。
+    this.phase = 'choice';
+    this.transitioning = false;
     this.badgeSystem.unlockOrReveal(BADGE_ID);
     // 广播章节完成，触发自动存档
     this.eventBus.emit(EVENT.CHAPTER_COMPLETE, { chapter: 'ch3' });
@@ -607,7 +623,7 @@ export class StealthScene {
    * @private
    */
   _advanceToNextScene() {
-    if (this.transitioning) return;
+    if (!this.choiceOverlay || this.phase !== 'choice') return;
     this.transitioning = true;
     this._hideChoiceOverlay();
     this.sceneManager.change(CHOICE_CONFIG.nextChapter);

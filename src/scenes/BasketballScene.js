@@ -41,6 +41,8 @@ const AIM_HIT_PADDING = 44;
 const AIM_HIT_RADIUS = 72;
 /** 小于该距离的拖拽视为误触，不发射篮球。 */
 const AIM_MIN_DRAG_DISTANCE = 18;
+/** 移动端投篮轮盘满格对应的逻辑拖拽距离，与 BallPhysics 默认值保持一致。 */
+const SHOOTING_JOYSTICK_MAX_DRAG_DISTANCE = 180;
 
 /**
  * Blumgi Ball 风格的 5 个短关卡：每次进球切换一个平台布局。
@@ -161,7 +163,7 @@ export class BasketballScene {
    * @param {InputManager} deps.input - 输入管理器
    * @param {HTMLElement} deps.container - UI 挂载容器
    */
-  constructor({ sceneManager, eventBus, badgeSystem, dialogueRunner, dialogueBox, input, player = null, container, canvas = null, assetLoader = null, getFps, getChoice, gooseSprite = null, coachSprite = null, goalBurstEffect = null }) {
+  constructor({ sceneManager, eventBus, badgeSystem, dialogueRunner, dialogueBox, input, player = null, container, canvas = null, assetLoader = null, getFps, getChoice, gooseSprite = null, coachSprite = null, goalBurstEffect = null, shootingJoystick = null }) {
     this.sceneManager = sceneManager;
     this.eventBus = eventBus;
     this.badgeSystem = badgeSystem;
@@ -171,6 +173,7 @@ export class BasketballScene {
     this.player = player;
     this.gooseSprite = gooseSprite;
     this.coachSprite = coachSprite;
+    this.shootingJoystick = shootingJoystick;
     this.container = container;
     this.canvas = canvas || (typeof document !== 'undefined' ? document.getElementById('game') : null);
     this.assetLoader = assetLoader;
@@ -205,6 +208,8 @@ export class BasketballScene {
     this.aimVector = null;
     /** 当前拖拽映射出的物理速度 */
     this.aimVelocity = null;
+    /** 是否由右下投篮轮盘持有当前瞄准；与画布拖拽输入互斥。 */
+    this.mobileShootAiming = false;
     /** 进入投篮阶段前画布的 touch-action 样式，用于退出时恢复 */
     this.previousCanvasTouchAction = '';
     /** 标记上一帧球是否在飞行（用于检测球落地的时刻） */
@@ -259,10 +264,19 @@ export class BasketballScene {
     this._onCanvasPointerMove = this._onCanvasPointerMove.bind(this);
     this._onCanvasPointerUp = this._onCanvasPointerUp.bind(this);
     this._onCanvasPointerCancel = this._onCanvasPointerCancel.bind(this);
+    this._onMobileShootMove = this._onMobileShootMove.bind(this);
+    this._onMobileShootRelease = this._onMobileShootRelease.bind(this);
+    this._onMobileShootCancel = this._onMobileShootCancel.bind(this);
     this._onRetryClick = this._onRetryClick.bind(this);
     this._onFailureContinue = this._onFailureContinue.bind(this);
     this._onChoiceStay = this._onChoiceStay.bind(this);
     this._onChoiceContinue = this._onChoiceContinue.bind(this);
+
+    this.shootingJoystick?.setHandlers?.({
+      onMove: this._onMobileShootMove,
+      onRelease: this._onMobileShootRelease,
+      onCancel: this._onMobileShootCancel,
+    });
   }
 
   // ==================== 场景生命周期 ====================
@@ -374,7 +388,8 @@ export class BasketballScene {
       this._startWinDialogue();
     } else if (phase === 'choice') {
       this.phase = 'choice';
-      this.transitioning = true;
+      // 抉择覆盖层不是场景切换；恢复存档后仍必须允许按钮提交下一章节。
+      this.transitioning = false;
       this.blumgiMode = false;
       this._setTopdownHudVisible(true);
       this._showChoice();
@@ -487,6 +502,7 @@ export class BasketballScene {
     this._removeKeyboardListeners();
     // 移除画布拖拽瞄准监听
     this._removeCanvasAimListeners();
+    this._setMobileShootVisible(false);
 
     // 停止蓄力
     this.isCharging = false;
@@ -695,8 +711,12 @@ export class BasketballScene {
         // 得分在穿过篮圈的当帧处理，不等待篮球落地或停止飞行。
         this.ballWasFlying = false;
         this._onBallScored();
-      } else {
+      } else if (this.physics.isBallFlying()) {
         this.ballWasFlying = true;
+      } else {
+        // 物理层可能在本帧落地或出界并立即结束飞行；不要等下一帧才刷新篮球。
+        this.ballWasFlying = false;
+        this._onBallLanded();
       }
     } else if (this.ballWasFlying) {
       // 球刚停止飞行（落地或出界），按投失处理；进球已在穿筐当帧处理。
@@ -719,8 +739,13 @@ export class BasketballScene {
       return;
     }
 
-    // 失败判定：时间到且球不在飞行中
-    if (this.physics.isTimeUp() && !this.physics.isBallFlying() && !this.transitioning) {
+    // 失败判定：时间到立即结束本轮，不让篮球在 0 秒后继续飞行或停留在场内。
+    // 最后一球的进球判定在上面的胜利判定之前完成，因此同帧进球仍可过关。
+    if (this.physics.isTimeUp() && !this.transitioning) {
+      if (this.physics.isBallFlying() || this.ballWasFlying) {
+        this._resetBallAfterShot();
+      }
+      this.ballWasFlying = false;
       this._onGameFailed();
       return;
     }
@@ -783,6 +808,7 @@ export class BasketballScene {
       this._startMinigame();
       return;
     }
+    this._setMobileShootVisible(false);
     this.phase = 'map';
     this.topdown.setSceneInfo('第一章 · 篮球馆', '靠近教练或投篮点，按互动开始投篮');
     this.topdown.setMovementLocked(false);
@@ -876,6 +902,7 @@ export class BasketballScene {
     // 投篮阶段必须由玩家拖拽篮球选择方向和力度。通用动作键不能调用
     // BallPhysics 的默认瞄准路线，否则手机上会变成“点一下就自动进球”。
     this._setMobileActionVisible(false);
+    this._setMobileShootVisible(true);
   }
 
   /**
@@ -887,6 +914,7 @@ export class BasketballScene {
     this.phase = 'winDialogue';
     this.blumgiMode = false;
     this._setTopdownHudVisible(true);
+    this._setMobileShootVisible(false);
     this.topdown?.setSceneInfo?.('第一章 · 篮球馆', '投篮完成，进入剧情对话');
     this.topdown?.setExitStatus?.('出口：章节完成');
 
@@ -982,7 +1010,7 @@ export class BasketballScene {
    * @private
    */
   _advanceToNextScene() {
-    if (this.transitioning) return;
+    if (!this.choiceOverlay || this.phase !== 'choice') return;
     this.transitioning = true;
     this._hideChoiceOverlay();
     this.sceneManager.change(CHOICE_CONFIG.nextChapter);
@@ -1010,6 +1038,7 @@ export class BasketballScene {
     this.phase = 'failed';
     this.blumgiMode = false;
     this._setTopdownHudVisible(true);
+    this._setMobileShootVisible(false);
     this.topdown?.setSceneInfo?.('第一章 · 篮球馆', '投篮挑战结束');
     this.topdown?.setExitStatus?.('出口：选择继续剧情或再来一局');
 
@@ -1234,6 +1263,58 @@ export class BasketballScene {
     actionElement.setAttribute('aria-hidden', 'true');
   }
 
+  /** 控制右下投篮轮盘的显示和触摸占用范围。 */
+  _setMobileShootVisible(visible) {
+    if (!visible) {
+      this.mobileShootAiming = false;
+      this._clearAimState();
+    }
+    this.shootingJoystick?.setEnabled?.(visible);
+    this.shootingJoystick?.setVisible?.(visible);
+  }
+
+  /** 右下轮盘移动时，将归一化屏幕向量映射成现有投篮瞄准向量。 */
+  _onMobileShootMove(vector) {
+    if (this.phase !== 'playing' || !this.physics || this.physics.isBallFlying()) return;
+    // 画布拖拽已经占用一个指针时，不让第二根手指改写同一发篮球的瞄准。
+    if (this.isAiming && !this.mobileShootAiming) return;
+
+    this.mobileShootAiming = true;
+    this.isAiming = true;
+    const ball = this.physics.getBallPosition();
+    this._updateAimFromPoint({
+      x: ball.x + vector.x * SHOOTING_JOYSTICK_MAX_DRAG_DISTANCE,
+      y: ball.y + vector.y * SHOOTING_JOYSTICK_MAX_DRAG_DISTANCE,
+    });
+  }
+
+  /** 右下轮盘松手时发射；低于最小拖拽距离视为取消。 */
+  _onMobileShootRelease(vector) {
+    if (!this.mobileShootAiming) return;
+    const ball = this.physics?.getBallPosition?.();
+    if (!ball) {
+      this.mobileShootAiming = false;
+      this._clearAimState();
+      return;
+    }
+
+    this._updateAimFromPoint({
+      x: ball.x + vector.x * SHOOTING_JOYSTICK_MAX_DRAG_DISTANCE,
+      y: ball.y + vector.y * SHOOTING_JOYSTICK_MAX_DRAG_DISTANCE,
+    });
+    const velocity = this.aimVector?.distance >= AIM_MIN_DRAG_DISTANCE ? this.aimVelocity : null;
+    this.mobileShootAiming = false;
+    this._clearAimState();
+    if (velocity) this._shootBall(velocity);
+  }
+
+  /** 系统取消右下触摸时清除预览，但不发射篮球。 */
+  _onMobileShootCancel() {
+    if (!this.mobileShootAiming) return;
+    this.mobileShootAiming = false;
+    this._clearAimState();
+  }
+
   // ==================== 画布拖拽输入 ====================
 
   /** 注册拖拽瞄准事件；只在投篮阶段启用，退出时恢复原画布样式。 */
@@ -1357,6 +1438,7 @@ export class BasketballScene {
   /** 清除当前拖拽状态，但不影响物理引擎已经发射的篮球。 */
   _clearAimState() {
     this.isAiming = false;
+    this.mobileShootAiming = false;
     this.aimPointerId = null;
     this.aimPoint = null;
     this.aimVector = null;

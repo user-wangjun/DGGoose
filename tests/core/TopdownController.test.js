@@ -90,6 +90,69 @@ describe('俯视场景共享控制器', () => {
     expect(onInteract).not.toHaveBeenCalled();
   });
 
+  it('隐藏标记的物件只在当前互动目标附近显示文字', () => {
+    const player = { x: 100, y: 100, position: { x: 100, y: 100 } };
+    const controller = new TopdownController({
+      player,
+      input: { getVector: () => ({ x: 0, y: 0, run: false }) },
+    });
+    const farTarget = {
+      id: 'far-tree',
+      x: 300,
+      y: 100,
+      radius: 50,
+      hideMarker: true,
+      markerLabel: '远处树',
+    };
+    const activeTarget = {
+      id: 'near-tree',
+      x: 100,
+      y: 100,
+      radius: 50,
+      hideMarker: true,
+      markerLabel: '当前树',
+    };
+    controller.setMap({ interactables: [farTarget, activeTarget] });
+    controller.setInteractionEnabled(true);
+
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      fillText: vi.fn(),
+    };
+    controller.drawInteractables(ctx);
+
+    expect(ctx.fillText).toHaveBeenCalledTimes(1);
+    expect(ctx.fillText).toHaveBeenCalledWith('当前树', 100, expect.any(Number));
+  });
+
+  it('正式互动标记只显示文字，不绘制范围圆圈', () => {
+    const controller = new TopdownController({
+      player: { x: 100, y: 100, position: { x: 100, y: 100 } },
+      input: { getVector: () => ({ x: 0, y: 0, run: false }) },
+    });
+    controller.setMap({
+      interactables: [{ id: 'sign', x: 100, y: 100, radius: 68, markerLabel: '顺序提示' }],
+    });
+    controller.setInteractionEnabled(true);
+
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      fillText: vi.fn(),
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      stroke: vi.fn(),
+    };
+    controller.drawInteractables(ctx);
+
+    expect(ctx.fillText).toHaveBeenCalledWith('顺序提示', 100, expect.any(Number));
+    expect(ctx.arc).not.toHaveBeenCalled();
+    expect(ctx.fill).not.toHaveBeenCalled();
+    expect(ctx.stroke).not.toHaveBeenCalled();
+  });
+
   it('俯视 HUD 与 16:9 游戏画框对齐，不占用画框外黑边', () => {
     const container = document.createElement('div');
     const canvas = document.createElement('canvas');

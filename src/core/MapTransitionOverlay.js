@@ -31,6 +31,13 @@ const TIMELINE = {
   fadeOut: [3200, 3600],
 };
 
+/**
+ * 目标场景资源是改善手机首帧的门槛，但不能把场景切换永久锁死。
+ * 个别移动端 WebView 可能让大图的 decode Promise 长时间不返回；超过这个
+ * 上限后放行转场，目标场景仍会使用自己的容错绘制并在资源完成后补上正式图层。
+ */
+const READY_TIMEOUT_MS = 8000;
+
 const NODE_TIP_CATEGORIES = {
   'lychee-orchard': '美食',
   'roast-goose-shop': '美食',
@@ -94,6 +101,7 @@ export class MapTransitionOverlay {
    * @param {HTMLImageElement|null} [options.mapImage] - 已加载的地图图像
    * @param {HTMLImageElement|null} [options.markerImage] - 已加载的徽章图像
    * @param {number} [options.sampleSteps=24] - 每段贝塞尔曲线的采样密度
+   * @param {number} [options.readyTimeoutMs=8000] - 目标场景资源最多阻塞转场的时长
    */
   constructor({
     assetLoader = null,
@@ -102,6 +110,7 @@ export class MapTransitionOverlay {
     mapImage = null,
     markerImage = null,
     sampleSteps = 24,
+    readyTimeoutMs = READY_TIMEOUT_MS,
   } = {}) {
     this.assetLoader = assetLoader;
     this.assets = { ...MAP_TRANSITION_ASSETS, ...assets };
@@ -117,9 +126,13 @@ export class MapTransitionOverlay {
     /** @type {Map<string, number>} 路线节点在实际弧长上的 0~1 进度 */
     this.routeNodeProgress = new Map();
     this.totalRouteLength = 0;
+    this.readyTimeoutMs = Math.max(0, Number(readyTimeoutMs) || 0);
 
     this.active = false;
     this.elapsedMs = TIMELINE.durationMs;
+    this.sceneReady = true;
+    this._sceneReadyToken = null;
+    this._sceneReadyTimer = null;
     this.fromName = null;
     this.toName = null;
     this.targetNodeId = null;
@@ -244,17 +257,31 @@ export class MapTransitionOverlay {
    * @param {Object} [options]
    * @param {string|null} [options.fromName]
    * @param {string|null} [options.toName]
+   * @param {Promise|undefined} [options.readyPromise] - 目标场景正式资源就绪 Promise
    * @returns {boolean} 是否启动了转场
    */
-  start({ fromName = null, toName = null } = {}) {
+  start({ fromName = null, toName = null, readyPromise = null } = {}) {
     const targetNodeId = SCENE_TO_NODE[toName];
     if (!targetNodeId) {
       this.stop();
       return false;
     }
 
+    this._clearSceneReadyTimer();
     this.active = true;
     this.elapsedMs = 0;
+    this.sceneReady = !(readyPromise && typeof readyPromise.then === 'function');
+    const readyToken = {};
+    this._sceneReadyToken = readyToken;
+    if (!this.sceneReady) {
+      const release = () => {
+        if (this._sceneReadyToken !== readyToken) return;
+        this.sceneReady = true;
+        this._clearSceneReadyTimer();
+      };
+      Promise.resolve(readyPromise).catch(() => null).then(release);
+      this._sceneReadyTimer = setTimeout(release, this.readyTimeoutMs);
+    }
     this.fromName = fromName;
     this.toName = toName;
     this.targetNodeId = targetNodeId;
@@ -268,7 +295,17 @@ export class MapTransitionOverlay {
   stop() {
     this.active = false;
     this.elapsedMs = TIMELINE.durationMs;
+    this.sceneReady = true;
+    this._sceneReadyToken = null;
+    this._clearSceneReadyTimer();
     this._setBackdropVisible(false);
+  }
+
+  /** 清理一次性资源门计时器，避免旧场景的计时器影响新转场。 */
+  _clearSceneReadyTimer() {
+    if (this._sceneReadyTimer === null) return;
+    clearTimeout(this._sceneReadyTimer);
+    this._sceneReadyTimer = null;
   }
 
   /**
@@ -318,7 +355,7 @@ export class MapTransitionOverlay {
 
     const safeDelta = Number.isFinite(deltaTime) ? Math.max(0, deltaTime) : 0;
     this.elapsedMs = Math.min(TIMELINE.durationMs, this.elapsedMs + safeDelta * 1000);
-    if (this.elapsedMs >= TIMELINE.durationMs) {
+    if (this.elapsedMs >= TIMELINE.durationMs && this.sceneReady) {
       this.active = false;
       this._setBackdropVisible(false);
     }
@@ -334,11 +371,15 @@ export class MapTransitionOverlay {
     const markerProgress = easeOutCubic(timelineProgress(this.elapsedMs, TIMELINE.markerTravel));
     const targetProgress = this._getTargetRouteProgress();
     const targetHighlight = easeOutCubic(timelineProgress(this.elapsedMs, TIMELINE.targetHighlight));
-    const fadeAlpha = 1 - easeOutCubic(timelineProgress(this.elapsedMs, TIMELINE.fadeOut));
+    const timelineFadeAlpha = 1 - easeOutCubic(timelineProgress(this.elapsedMs, TIMELINE.fadeOut));
+    // 资源还在移动端下载/解码时保持地图转场可见，不能把未就绪的纯色场景
+    // 提前露出来。Promise 失败也会放行，由场景自己的容错绘制负责兜底。
+    const fadeAlpha = this.sceneReady ? timelineFadeAlpha : 1;
     const transitionProgress = timelineProgress(this.elapsedMs, [0, TIMELINE.durationMs]);
 
     return {
       active: this.active,
+      sceneReady: this.sceneReady,
       elapsedMs: this.elapsedMs,
       transitionProgress,
       mapAlpha,
